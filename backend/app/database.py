@@ -32,13 +32,18 @@ if settings.DATABASE_URL.startswith("sqlite"):
         connect_args={"check_same_thread": False}
     )
 else:
+    # For PostgreSQL with Supabase/PgBouncer, disable prepared statement caching
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=settings.DEBUG,
         future=True,
         pool_pre_ping=True,
         pool_size=10,
-        max_overflow=20
+        max_overflow=20,
+        connect_args={
+            "statement_cache_size": 0,  # Required for PgBouncer compatibility
+            "prepared_statement_cache_size": 0,
+        }
     )
 
 # Create async session factory
@@ -66,8 +71,11 @@ async def get_db() -> AsyncSession:
 
 async def init_db():
     """Initialize database tables."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # For Supabase/PostgreSQL, tables are created manually via SQL Editor
+    # Skip automatic creation to avoid PgBouncer prepared statement issues
+    if settings.DATABASE_URL.startswith("sqlite"):
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db():

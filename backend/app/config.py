@@ -41,7 +41,8 @@ class Settings(BaseSettings):
     WASTE_WEIGHT: float = 0.20
     
     class Config:
-        env_file = ".env"
+        # Use absolute path to find .env file, regardless of where the app is run from
+        env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
         case_sensitive = True
 
 
