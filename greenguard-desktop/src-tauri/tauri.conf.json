@@ -1,0 +1,40 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "GreenGuard ESG Desktop",
+    "version": "1.0.0",
+    "identifier": "com.greenguard.esg",
+    "build": {
+        "beforeDevCommand": "npm run dev",
+        "devUrl": "http://localhost:1420",
+        "beforeBuildCommand": "npm run build",
+        "frontendDist": "../dist"
+    },
+    "app": {
+        "windows": [
+            {
+                "title": "GreenGuard ESG Desktop",
+                "width": 1400,
+                "height": 900,
+                "minWidth": 1000,
+                "minHeight": 700,
+                "resizable": true,
+                "fullscreen": false,
+                "center": true
+            }
+        ],
+        "security": {
+            "csp": "default-src 'self'; connect-src 'self' http://localhost:8000 https://localhost:8000; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all",
+        "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
+            "icons/icon.icns",
+            "icons/icon.ico"
+        ]
+    }
+}
