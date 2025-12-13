@@ -11,10 +11,12 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.document import Document
+from app.models.user import User
 from app.schemas.upload_schema import DocumentUploadResponse, DocumentResponse
 from app.config import settings
 from app.services.pdf_service import pdf_service
 from app.services.ocr_service import ocr_service
+from app.utils.jwt_handler import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -51,7 +53,8 @@ async def extract_text_background(document_id: int, file_path: str, file_type: s
 async def upload_document(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     ext = Path(file.filename).suffix.lower().lstrip(".")
     if ext not in settings.ALLOWED_EXTENSIONS:
@@ -69,9 +72,8 @@ async def upload_document(
     with open(file_path, "wb") as f:
         f.write(content)
     
-    # Use user_id=1 for testing (auth bypassed)
     document = Document(
-        user_id=1,
+        user_id=current_user.id,
         file_path=file_path,
         file_name=file.filename,
         file_type=file_type,
@@ -98,14 +100,30 @@ async def upload_document(
 
 
 @router.get("/documents", response_model=list[DocumentResponse])
-async def list_documents(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Document).order_by(Document.created_at.desc()))
+async def list_documents(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(Document)
+        .where(Document.user_id == current_user.id)
+        .order_by(Document.created_at.desc())
+    )
     return [DocumentResponse.model_validate(d) for d in result.scalars().all()]
 
 
 @router.get("/document/{document_id}", response_model=DocumentResponse)
-async def get_document(document_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Document).where(Document.id == document_id))
+async def get_document(
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.user_id == current_user.id
+        )
+    )
     document = result.scalar_one_or_none()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")

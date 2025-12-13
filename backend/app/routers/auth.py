@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user_schema import UserCreate, UserLogin, TokenRefresh, UserResponse, TokenResponse, MessageResponse
+from app.schemas.user_schema import UserCreate, UserLogin, TokenRefresh, PasswordChange, UserResponse, TokenResponse, MessageResponse
 from app.utils.hashing import hash_password, verify_password
 from app.utils.jwt_handler import create_access_token, create_refresh_token, decode_token, get_current_user
 from app.config import settings
@@ -86,3 +86,22 @@ async def refresh_token(token_data: TokenRefresh, db: AsyncSession = Depends(get
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     return UserResponse.model_validate(current_user)
+
+
+@router.post("/change-password", response_model=MessageResponse)
+async def change_password(
+    password_data: PasswordChange,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if not verify_password(password_data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    current_user.hashed_password = hash_password(password_data.new_password)
+    await db.commit()
+    
+    logger.info(f"Password changed for user: {current_user.email}")
+    return MessageResponse(message="Password changed successfully")

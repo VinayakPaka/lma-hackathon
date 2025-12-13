@@ -16,25 +16,15 @@ interface AuthState {
     login: (user: User, accessToken: string, refreshToken: string) => void
     logout: () => void
     setTokens: (accessToken: string, refreshToken: string) => void
-    testLogin: () => void
-}
-
-// TEST USER - bypass auth for development
-const TEST_USER: User = {
-    id: 1,
-    name: 'Vinay (Test)',
-    email: 'vinayreddyyedula@gmail.com',
-    role: 'admin'
 }
 
 export const useAuthStore = create<AuthState>()(
     persist(
         (set) => ({
-            // AUTO-LOGIN FOR TESTING - bypass auth
-            user: TEST_USER,
-            accessToken: 'test-token-bypass',
-            refreshToken: 'test-refresh-bypass',
-            isAuthenticated: true, // Set to true to bypass login
+            user: null,
+            accessToken: null,
+            refreshToken: null,
+            isAuthenticated: false,
 
             login: (user, accessToken, refreshToken) =>
                 set({
@@ -52,16 +42,10 @@ export const useAuthStore = create<AuthState>()(
                 }),
             setTokens: (accessToken, refreshToken) =>
                 set({ accessToken, refreshToken }),
-            testLogin: () =>
-                set({
-                    user: TEST_USER,
-                    accessToken: 'test-token-bypass',
-                    refreshToken: 'test-refresh-bypass',
-                    isAuthenticated: true,
-                }),
         }),
         {
             name: 'greenguard-auth',
         }
     )
 )
+
