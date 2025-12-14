@@ -38,11 +38,15 @@ else:
         echo=settings.DEBUG,
         future=True,
         pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=300,  # Recycle connections every 5 minutes
         connect_args={
             "statement_cache_size": 0,  # Required for PgBouncer compatibility
             "prepared_statement_cache_size": 0,
+            "server_settings": {
+                "plan_cache_mode": "force_custom_plan"
+            }
         }
     )
 

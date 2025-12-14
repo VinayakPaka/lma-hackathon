@@ -32,7 +32,7 @@ class ESGReport(Base):
     detected_keywords = Column(JSON)
     raw_metrics = Column(JSON)
     red_flags = Column(JSON)
-    recommendations = Column(Text)
+    recommendations = Column(JSON)
     
     # Status
     report_status = Column(String(50), default="generated")
