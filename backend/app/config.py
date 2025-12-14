@@ -40,6 +40,25 @@ class Settings(BaseSettings):
     TAXONOMY_WEIGHT: float = 0.30
     WASTE_WEIGHT: float = 0.20
     
+    # AI Configuration - Perplexity AI
+    PERPLEXITY_API_KEY: str = os.getenv("PERPLEXITY_API_KEY", "")
+    PERPLEXITY_MODEL: str = os.getenv("PERPLEXITY_MODEL", "llama-3.1-sonar-large-128k-online")
+    PERPLEXITY_API_URL: str = "https://api.perplexity.ai/chat/completions"
+    
+    # Voyage AI for Embeddings
+    VOYAGE_API_KEY: str = os.getenv("VOYAGE_API_KEY", "")
+    VOYAGE_EMBEDDING_MODEL: str = os.getenv("VOYAGE_EMBEDDING_MODEL", "voyage-3.5")
+    EMBEDDING_DIMENSION: int = 1024  # voyage-3.5 default dimension
+    
+    # Supabase Configuration
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    
+    # RAG Configuration
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
+    TOP_K_RETRIEVAL: int = 5
+    
     class Config:
         # Use absolute path to find .env file, regardless of where the app is run from
         env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")

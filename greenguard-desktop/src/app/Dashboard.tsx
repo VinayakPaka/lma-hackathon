@@ -2,8 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { complianceApi, esgApi, proceedsApi } from '@/lib/api'
 import ScoreGauge from '@/components/ScoreGauge'
 import { ESGRadarChart, ESGBarChart } from '@/components/ESGMetricChart'
-import { FileText, Upload, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react'
+import { FileText, CheckCircle, AlertTriangle, TrendingUp, Brain } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
+import { Link } from 'react-router-dom'
 
 export default function Dashboard() {
     const { data: summary } = useQuery({
@@ -43,9 +44,18 @@ export default function Dashboard() {
 
     return (
         <div className="space-y-6 animate-fade-in">
-            <div>
-                <h1 className="text-2xl font-bold">Dashboard</h1>
-                <p className="text-muted-foreground">Overview of your ESG compliance</p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold">Dashboard</h1>
+                    <p className="text-muted-foreground">Overview of your ESG compliance</p>
+                </div>
+                <Link
+                    to="/upload"
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                >
+                    <Brain className="w-4 h-4" />
+                    New AI Analysis
+                </Link>
             </div>
 
             {/* Score Cards */}

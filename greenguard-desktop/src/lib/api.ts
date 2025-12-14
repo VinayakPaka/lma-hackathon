@@ -71,12 +71,22 @@ export const uploadApi = {
     getDocument: (id: number) => api.get(`/upload/document/${id}`),
 }
 
-// ESG API
+// ESG API (Legacy regex-based)
 export const esgApi = {
     extractESG: (documentId: number) =>
         api.post(`/extract/esg/${documentId}`),
     getReports: (page = 1) => api.get(`/extract/reports?page=${page}`),
     getReport: (id: number) => api.get(`/extract/report/${id}`),
+}
+
+// AI ESG API (New AI-powered analysis)
+export const aiEsgApi = {
+    // AI-powered ESG extraction with Perplexity
+    extractWithAI: (documentId: number, useFallback = true) =>
+        api.post(`/ai-extract/ai/${documentId}?use_fallback=${useFallback}`),
+    // Ask questions about a document using RAG
+    askDocument: (documentId: number, question: string) =>
+        api.post(`/ai-extract/ask/${documentId}`, { question }),
 }
 
 // Compliance API
@@ -106,3 +116,4 @@ export const proceedsApi = {
     getTransactions: () => api.get('/use-of-proceeds/transactions'),
     getSummary: () => api.get('/use-of-proceeds/summary'),
 }
+

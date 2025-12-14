@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.routers import auth, file_upload, esg_extract, compliance, kpi_benchmark, use_of_proceeds
+from app.routers import auth, file_upload, esg_extract, ai_esg_extract, compliance, kpi_benchmark, use_of_proceeds
 
 # Configure logging
 logging.basicConfig(
@@ -89,6 +89,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(file_upload.router, prefix="/upload", tags=["File Upload"])
 app.include_router(esg_extract.router, prefix="/extract", tags=["ESG Extraction"])
+app.include_router(ai_esg_extract.router, prefix="/ai-extract", tags=["AI ESG Extraction"])
 app.include_router(compliance.router, prefix="/compliance", tags=["Compliance"])
 app.include_router(kpi_benchmark.router, prefix="/kpi", tags=["KPI Benchmarking"])
 app.include_router(use_of_proceeds.router, prefix="/use-of-proceeds", tags=["Use of Proceeds"])

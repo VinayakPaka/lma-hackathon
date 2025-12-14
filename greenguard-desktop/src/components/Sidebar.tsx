@@ -3,18 +3,18 @@ import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/lib/utils'
 import {
     LayoutDashboard,
-    Upload,
     FileText,
     BarChart3,
     DollarSign,
     Settings,
     LogOut,
     Leaf,
+    Brain,
 } from 'lucide-react'
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/upload', icon: Upload, label: 'Upload Documents' },
+    { path: '/upload', icon: Brain, label: 'AI Analysis', badge: 'AI' },
     { path: '/reports', icon: FileText, label: 'ESG Reports' },
     { path: '/kpi', icon: BarChart3, label: 'KPI Tool' },
     { path: '/use-of-proceeds', icon: DollarSign, label: 'Use of Proceeds' },
@@ -60,7 +60,12 @@ export default function Sidebar() {
                         }
                     >
                         <item.icon className="w-5 h-5" />
-                        {item.label}
+                        <span className="flex-1">{item.label}</span>
+                        {'badge' in item && item.badge && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-primary text-primary-foreground rounded">
+                                {item.badge}
+                            </span>
+                        )}
                     </NavLink>
                 ))}
             </nav>

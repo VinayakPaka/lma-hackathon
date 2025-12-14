@@ -23,30 +23,107 @@ logger = logging.getLogger(__name__)
 
 
 async def extract_text_background(document_id: int, file_path: str, file_type: str):
-    """Background task to extract text from uploaded document."""
+    """Background task to extract text from uploaded document and generate embeddings."""
     from app.database import AsyncSessionLocal
+    from app.services.embedding_service import embedding_service
+    from app.models.document_embedding import DocumentChunk
+    from app.config import settings
+    import traceback
     
-    async with AsyncSessionLocal() as db:
-        try:
-            if file_type == "pdf":
-                text = pdf_service.extract_text(file_path)
-            else:
-                text = ocr_service.extract_text(file_path)
+    logger.info(f"Starting background text extraction for document {document_id}")
+    
+    # Use a separate session for the background task with proper cleanup
+    db = None
+    try:
+        db = AsyncSessionLocal()
+        
+        # Step 1: Extract text
+        logger.info(f"Extracting text from {file_type} file: {file_path}")
+        if file_type == "pdf":
+            text = pdf_service.extract_text(file_path)
+        else:
+            text = ocr_service.extract_text(file_path)
+        
+        result = await db.execute(select(Document).where(Document.id == document_id))
+        doc = result.scalar_one_or_none()
+        if doc:
+            doc.extracted_text = text or ""
+            doc.extraction_status = "completed" if text else "failed"
+            await db.commit()
+            logger.info(f"Text extraction completed for document {document_id}, text length: {len(text) if text else 0}")
             
-            result = await db.execute(select(Document).where(Document.id == document_id))
-            doc = result.scalar_one_or_none()
-            if doc:
-                doc.extracted_text = text or ""
-                doc.extraction_status = "completed" if text else "failed"
-                await db.commit()
-                logger.info(f"Extraction completed for document {document_id}")
-        except Exception as e:
-            logger.error(f"Extraction failed for document {document_id}: {str(e)}")
+            # Step 2: Generate embeddings if text extraction succeeded
+            if text and len(text.strip()) > 0:
+                # Check if Voyage API is configured
+                if not settings.VOYAGE_API_KEY:
+                    logger.warning(f"VOYAGE_API_KEY not configured, skipping embedding generation for document {document_id}")
+                elif not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
+                    logger.warning(f"Supabase not configured, skipping embedding storage for document {document_id}")
+                else:
+                    try:
+                        logger.info(f"Starting embedding generation for document {document_id}")
+                        
+                        # Chunk the text
+                        chunks = embedding_service.chunk_text(text)
+                        logger.info(f"Created {len(chunks)} chunks from document {document_id}")
+                        
+                        if chunks:
+                            # Generate embeddings in batch
+                            chunk_texts = [c["text"] for c in chunks]
+                            logger.info(f"Generating embeddings for {len(chunk_texts)} chunks")
+                            embeddings = embedding_service.generate_embeddings_batch(chunk_texts)
+                            logger.info(f"Generated {len(embeddings)} embeddings")
+                            
+                            # Store in Supabase
+                            logger.info(f"Storing embeddings in Supabase for document {document_id}")
+                            embedding_ids = embedding_service.store_embeddings(
+                                document_id, chunks, embeddings
+                            )
+                            logger.info(f"Stored {len(embedding_ids)} embeddings in Supabase")
+                            
+                            # Store chunk references in local database using a fresh session
+                            await db.close()
+                            db = AsyncSessionLocal()
+                            
+                            for chunk, emb_id in zip(chunks, embedding_ids):
+                                chunk_record = DocumentChunk(
+                                    document_id=document_id,
+                                    chunk_index=chunk["index"],
+                                    chunk_text=chunk["text"][:500],  # Store preview
+                                    embedding_id=emb_id,
+                                    token_count=chunk["token_count"]
+                                )
+                                db.add(chunk_record)
+                            
+                            await db.commit()
+                            logger.info(f"Successfully completed embedding generation for document {document_id}: {len(embedding_ids)} embeddings stored")
+                        else:
+                            logger.warning(f"No chunks created from document {document_id} text")
+                        
+                    except Exception as e:
+                        logger.error(f"Embedding generation failed for document {document_id}: {type(e).__name__}: {str(e)}")
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        # Don't fail the whole process if embeddings fail
+            else:
+                logger.warning(f"Document {document_id} has no extracted text, skipping embedding generation")
+                        
+    except Exception as e:
+        logger.error(f"Extraction failed for document {document_id}: {type(e).__name__}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        try:
+            if db:
+                await db.close()
+                db = AsyncSessionLocal()
             result = await db.execute(select(Document).where(Document.id == document_id))
             doc = result.scalar_one_or_none()
             if doc:
                 doc.extraction_status = "failed"
                 await db.commit()
+        except Exception as inner_e:
+            logger.error(f"Failed to update document status: {str(inner_e)}")
+    finally:
+        if db:
+            await db.close()
 
 
 @router.post("/document", response_model=DocumentUploadResponse)
