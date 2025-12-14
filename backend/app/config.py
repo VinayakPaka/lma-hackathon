@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     
     # AI Configuration - Perplexity AI
     PERPLEXITY_API_KEY: str = os.getenv("PERPLEXITY_API_KEY", "")
-    PERPLEXITY_MODEL: str = os.getenv("PERPLEXITY_MODEL", "llama-3.1-sonar-large-128k-online")
+    # Valid models: 'sonar', 'sonar-pro', 'sonar-reasoning' (as of Dec 2024)
+    PERPLEXITY_MODEL: str = os.getenv("PERPLEXITY_MODEL", "sonar")
     PERPLEXITY_API_URL: str = "https://api.perplexity.ai/chat/completions"
     
     # Voyage AI for Embeddings

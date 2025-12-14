@@ -173,9 +173,11 @@ class AIESGService:
             ESG analysis results
         """
         logger.info(f"Starting AI ESG analysis for document {document_id}")
+        logger.info(f"Document text length: {len(full_text)} characters")
         
         # If text is very long, use the most relevant chunks via RAG
         if len(full_text) > 15000:
+            logger.info(f"Text > 15000 chars, using RAG vector search for document {document_id}")
             # Get relevant chunks for ESG analysis
             try:
                 relevant_chunks = embedding_service.search_similar(
@@ -183,11 +185,18 @@ class AIESGService:
                     document_id=document_id,
                     top_k=10
                 )
-                context = "\n\n---\n\n".join([c["content"] for c in relevant_chunks])
+                if relevant_chunks:
+                    logger.info(f"[RAG] Retrieved {len(relevant_chunks)} relevant chunks via vector search")
+                    context = "\n\n---\n\n".join([c["content"] for c in relevant_chunks])
+                    logger.info(f"[RAG] Using {len(context)} chars of RAG-retrieved context")
+                else:
+                    logger.warning(f"[RAG] No chunks found, falling back to truncated text")
+                    context = full_text[:15000]
             except Exception as e:
-                logger.warning(f"RAG search failed, using truncated text: {str(e)}")
+                logger.warning(f"[RAG] Vector search failed: {str(e)}, using truncated text")
                 context = full_text[:15000]
         else:
+            logger.info(f"Text <= 15000 chars, using full text (no RAG needed)")
             context = full_text
         
         # Prepare the extraction prompt
@@ -199,7 +208,9 @@ class AIESGService:
         ]
         
         # Call Perplexity for analysis
+        logger.info(f"[AI] Calling Perplexity AI with model: {settings.PERPLEXITY_MODEL}")
         response = await self._call_perplexity(messages)
+        logger.info(f"[AI] Perplexity response received ({len(response)} chars)")
         
         # Parse the response
         analysis = self._parse_json_response(response)
@@ -208,7 +219,7 @@ class AIESGService:
             logger.error("Failed to parse ESG analysis response")
             return {"error": "Failed to parse analysis", "raw_response": response}
         
-        logger.info(f"AI ESG analysis complete for document {document_id}")
+        logger.info(f"[SUCCESS] AI ESG analysis complete for document {document_id}")
         return analysis
     
     async def ask_document(

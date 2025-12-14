@@ -10,7 +10,8 @@ export default function Reports() {
         queryFn: () => esgApi.getReports(1),
     })
 
-    const reports = data?.data?.reports || []
+    // API returns array directly, not wrapped in { reports: [] }
+    const reports = Array.isArray(data?.data) ? data.data : (data?.data?.reports || [])
 
     const getStatusBadge = (score: number) => {
         if (score >= 75) return { label: 'Compliant', className: 'bg-green-500/10 text-green-500' }
