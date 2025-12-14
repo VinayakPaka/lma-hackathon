@@ -9,17 +9,28 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.document import Document
 from app.models.esg_report import ESGReport
+from app.models.user import User
 from app.schemas.esg_schema import ESGExtractionRequest, ESGExtractionResponse, ESGReportResponse, ESGMetrics, ESGScores
 from app.services.esg_mapping_service import esg_mapping_service
 from app.services.scoring_service import scoring_service
+from app.utils.jwt_handler import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.post("/esg/{document_id}", response_model=ESGExtractionResponse)
-async def extract_esg_data(document_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Document).where(Document.id == document_id))
+async def extract_esg_data(
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.user_id == current_user.id
+        )
+    )
     document = result.scalar_one_or_none()
     
     if not document:
@@ -82,8 +93,15 @@ async def extract_esg_data(document_id: int, db: AsyncSession = Depends(get_db))
 
 
 @router.get("/reports", response_model=list[ESGReportResponse])
-async def list_reports(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ESGReport).order_by(ESGReport.generated_at.desc()))
+async def list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(ESGReport)
+        .where(ESGReport.user_id == current_user.id)
+        .order_by(ESGReport.generated_at.desc())
+    )
     reports = result.scalars().all()
     
     response = []
@@ -116,8 +134,17 @@ async def list_reports(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/report/{report_id}", response_model=ESGReportResponse)
-async def get_report(report_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ESGReport).where(ESGReport.id == report_id))
+async def get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(ESGReport).where(
+            ESGReport.id == report_id,
+            ESGReport.user_id == current_user.id
+        )
+    )
     report = result.scalar_one_or_none()
     
     if not report:

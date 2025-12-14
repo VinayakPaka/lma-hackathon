@@ -8,16 +8,27 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.esg_report import ESGReport
+from app.models.user import User
 from app.schemas.esg_schema import ComplianceScoreResponse
 from app.services.scoring_service import scoring_service
+from app.utils.jwt_handler import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.get("/score/{report_id}", response_model=ComplianceScoreResponse)
-async def get_compliance_score(report_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ESGReport).where(ESGReport.id == report_id))
+async def get_compliance_score(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(ESGReport).where(
+            ESGReport.id == report_id,
+            ESGReport.user_id == current_user.id
+        )
+    )
     report = result.scalar_one_or_none()
     
     if not report:
@@ -52,8 +63,15 @@ async def get_compliance_score(report_id: int, db: AsyncSession = Depends(get_db
 
 
 @router.get("/summary")
-async def get_compliance_summary(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ESGReport).order_by(ESGReport.generated_at.desc()))
+async def get_compliance_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(ESGReport)
+        .where(ESGReport.user_id == current_user.id)
+        .order_by(ESGReport.generated_at.desc())
+    )
     reports = result.scalars().all()
     
     if not reports:
@@ -71,10 +89,16 @@ async def get_compliance_summary(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/alerts")
-async def get_compliance_alerts(db: AsyncSession = Depends(get_db)):
+async def get_compliance_alerts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     result = await db.execute(
         select(ESGReport)
-        .where(ESGReport.overall_compliance_score < 60)
+        .where(
+            ESGReport.user_id == current_user.id,
+            ESGReport.overall_compliance_score < 60
+        )
         .order_by(ESGReport.generated_at.desc())
         .limit(10)
     )
