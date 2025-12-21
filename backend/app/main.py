@@ -13,7 +13,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.routers import auth, file_upload, esg_extract, ai_esg_extract, compliance, kpi_benchmark, use_of_proceeds
+from app.routers import auth, file_upload, esg_extract, ai_esg_extract, compliance, kpi_benchmark, use_of_proceeds, kpi_evaluation, kpi_benchmarking
+
+
 
 # Configure logging
 logging.basicConfig(
@@ -28,6 +30,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     logger.info("Starting GreenGuard ESG Platform...")
+    
+    # Check configuration
+    from app.middleware.config_check import check_configuration
+    config_ok = check_configuration()
+    if not config_ok:
+        logger.warning("=" * 80)
+        logger.warning("⚠️  APPLICATION STARTED WITH CONFIGURATION ISSUES")
+        logger.warning("See CONFIGURATION_GUIDE.md for setup instructions")
+        logger.warning("=" * 80)
+    
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     logger.info(f"Upload directory: {settings.UPLOAD_DIR}")
     await init_db()
@@ -93,6 +105,8 @@ app.include_router(ai_esg_extract.router, prefix="/ai-extract", tags=["AI ESG Ex
 app.include_router(compliance.router, prefix="/compliance", tags=["Compliance"])
 app.include_router(kpi_benchmark.router, prefix="/kpi", tags=["KPI Benchmarking"])
 app.include_router(use_of_proceeds.router, prefix="/use-of-proceeds", tags=["Use of Proceeds"])
+app.include_router(kpi_evaluation.router, prefix="/kpi", tags=["KPI Evaluation"])
+app.include_router(kpi_benchmarking.router)  # KPI Benchmarking Engine (uses /kpi-benchmark prefix)
 
 
 @app.get("/", tags=["Health"])

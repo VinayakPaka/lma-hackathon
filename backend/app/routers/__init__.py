@@ -8,4 +8,5 @@ from app.routers import ai_esg_extract
 from app.routers import compliance
 from app.routers import kpi_benchmark
 from app.routers import use_of_proceeds
+from app.routers import kpi_benchmarking
 
