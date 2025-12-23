@@ -55,9 +55,11 @@ async def extract_text_background(document_id: int, file_path: str, file_type: s
             if text and len(text.strip()) > 0:
                 # Check if Voyage API is configured
                 if not settings.VOYAGE_API_KEY:
-                    logger.warning(f"VOYAGE_API_KEY not configured, skipping embedding generation for document {document_id}")
+                    logger.error(f"VOYAGE_API_KEY not configured! Embeddings are required for proper document analysis. Document ID: {document_id}")
+                    logger.error("Please configure VOYAGE_API_KEY in your .env file")
                 elif not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
-                    logger.warning(f"Supabase not configured, skipping embedding storage for document {document_id}")
+                    logger.error(f"Supabase not configured! Vector storage is required for embeddings. Document ID: {document_id}")
+                    logger.error("Please configure SUPABASE_URL and SUPABASE_KEY in your .env file")
                 else:
                     try:
                         logger.info(f"Starting embedding generation for document {document_id}")

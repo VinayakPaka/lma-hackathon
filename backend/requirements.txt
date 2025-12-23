@@ -40,3 +40,7 @@ voyageai>=0.3.0
 httpx>=0.25.0
 tiktoken>=0.5.0
 supabase>=2.0.0
+
+# ESG Data
+yfinance>=0.2.30
+

@@ -6,6 +6,7 @@ import Upload from './app/Upload'
 import Reports from './app/Reports'
 import ReportDetail from './app/ReportDetail'
 import KPITool from './app/KPITool'
+import KPIBenchmarking from './app/KPIBenchmarking'
 import UseOfProceeds from './app/UseOfProceeds'
 import Settings from './app/Settings'
 import Login from './app/Login'
@@ -27,6 +28,7 @@ function App() {
                         <Route path="reports" element={<Reports />} />
                         <Route path="reports/:id" element={<ReportDetail />} />
                         <Route path="kpi" element={<KPITool />} />
+                        <Route path="kpi-benchmarking" element={<KPIBenchmarking />} />
                         <Route path="use-of-proceeds" element={<UseOfProceeds />} />
                         <Route path="settings" element={<Settings />} />
                     </Route>

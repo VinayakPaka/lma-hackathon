@@ -55,7 +55,7 @@ class DocumentQAResponse(BaseModel):
 @router.post("/ai/{document_id}", response_model=AIAnalysisResponse)
 async def extract_esg_with_ai(
     document_id: int,
-    use_fallback: bool = Query(default=True, description="Use regex fallback if AI fails"),
+    use_fallback: bool = Query(default=False, description="Use regex fallback if AI fails"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -96,27 +96,42 @@ async def extract_esg_with_ai(
     # Check if AI is configured
     ai_available = bool(settings.PERPLEXITY_API_KEY)
     
-    if ai_available:
+    if not ai_available:
+        error_msg = "PERPLEXITY_API_KEY is not configured. Please set it in your .env file to enable AI analysis."
+        logger.error(error_msg)
+        if use_fallback:
+            logger.warning("Using regex fallback mode (limited accuracy)")
+            analysis = _fallback_analysis(text)
+            scores = _fallback_scores(analysis)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=error_msg
+            )
+    else:
         try:
             # Perform AI analysis
             logger.info(f"Starting AI ESG analysis for document {document_id}")
             analysis = await ai_esg_service.analyze_document(document_id, text)
             
             if "error" in analysis:
+                error_detail = analysis.get('error')
+                logger.error(f"AI analysis failed: {error_detail}")
                 if use_fallback:
                     logger.warning("AI analysis failed, falling back to regex")
                     analysis = _fallback_analysis(text)
+                    scores = _fallback_scores(analysis)
                 else:
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail=f"AI analysis failed: {analysis.get('error')}"
+                        detail=f"AI analysis failed: {error_detail}"
                     )
-            
-            # Calculate scores from AI analysis
-            scores = ai_esg_service.calculate_scores_from_analysis(analysis)
+            else:
+                # Calculate scores from AI analysis
+                scores = ai_esg_service.calculate_scores_from_analysis(analysis)
             
         except Exception as e:
-            logger.error(f"AI analysis error: {str(e)}")
+            logger.error(f"AI analysis error: {str(e)}", exc_info=True)
             if use_fallback:
                 logger.warning("AI analysis error, falling back to regex")
                 analysis = _fallback_analysis(text)
@@ -126,11 +141,6 @@ async def extract_esg_with_ai(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"AI analysis failed: {str(e)}"
                 )
-    else:
-        # No AI configured, use fallback
-        logger.info("AI not configured, using regex analysis")
-        analysis = _fallback_analysis(text)
-        scores = _fallback_scores(analysis)
     
     # Extract metrics for database storage
     metrics = analysis.get("metrics", {})

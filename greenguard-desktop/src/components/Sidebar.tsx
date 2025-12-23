@@ -4,19 +4,19 @@ import { cn } from '@/lib/utils'
 import {
     LayoutDashboard,
     FileText,
-    BarChart3,
     DollarSign,
     Settings,
     LogOut,
     Leaf,
     Brain,
+    Scale,
 } from 'lucide-react'
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/upload', icon: Brain, label: 'AI Analysis', badge: 'AI' },
     { path: '/reports', icon: FileText, label: 'ESG Reports' },
-    { path: '/kpi', icon: BarChart3, label: 'KPI Tool' },
+    { path: '/kpi-benchmarking', icon: Scale, label: 'KPI Assessment', badge: 'NEW' },
     { path: '/use-of-proceeds', icon: DollarSign, label: 'Use of Proceeds' },
     { path: '/settings', icon: Settings, label: 'Settings' },
 ]
