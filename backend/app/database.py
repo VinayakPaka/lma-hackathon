@@ -33,20 +33,20 @@ if settings.DATABASE_URL.startswith("sqlite"):
     )
 else:
     # For PostgreSQL with Supabase/PgBouncer, disable prepared statement caching
+    # IMPORTANT: PgBouncer in transaction mode doesn't support prepared statements
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=settings.DEBUG,
         future=True,
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        pool_recycle=300,  # Recycle connections every 5 minutes
+        pool_size=2,  # Keep pool small for PgBouncer
+        max_overflow=3,
+        pool_recycle=60,  # Recycle connections every 60 seconds
+        pool_timeout=30,
         connect_args={
-            "statement_cache_size": 0,  # Required for PgBouncer compatibility
-            "prepared_statement_cache_size": 0,
-            "server_settings": {
-                "plan_cache_mode": "force_custom_plan"
-            }
+            "statement_cache_size": 0,  # CRITICAL: Disable statement caching for PgBouncer
+            "prepared_statement_cache_size": 0,  # CRITICAL: Disable prepared statement cache
+            "command_timeout": 60,
         }
     )
 

@@ -61,7 +61,7 @@ export default function Upload() {
     })
 
     const aiAnalysisMutation = useMutation({
-        mutationFn: (docId: number) => aiEsgApi.extractWithAI(docId, true),
+        mutationFn: (docId: number) => aiEsgApi.extractWithAI(docId),
         onSuccess: (response) => {
             setExtractedData(response.data)
             setStep('preview')

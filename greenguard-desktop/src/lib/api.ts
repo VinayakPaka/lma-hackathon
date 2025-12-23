@@ -81,8 +81,8 @@ export const esgApi = {
 
 // AI ESG API (New AI-powered analysis)
 export const aiEsgApi = {
-    // AI-powered ESG extraction with Perplexity
-    extractWithAI: (documentId: number, useFallback = true) =>
+    // AI-powered ESG extraction with Perplexity + RAG
+    extractWithAI: (documentId: number, useFallback = false) =>
         api.post(`/ai-extract/ai/${documentId}?use_fallback=${useFallback}`),
     // Ask questions about a document using RAG
     askDocument: (documentId: number, question: string) =>

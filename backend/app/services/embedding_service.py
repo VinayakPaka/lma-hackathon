@@ -58,11 +58,20 @@ class EmbeddingService:
         # Clean the text
         text = text.strip()
         
+        # Limit text length to prevent memory issues (max 500KB of text)
+        max_text_length = 500000
+        if len(text) > max_text_length:
+            logger.warning(f"Text length {len(text)} exceeds limit, truncating to {max_text_length}")
+            text = text[:max_text_length]
+        
         chunks = []
         start = 0
         chunk_index = 0
         
-        while start < len(text):
+        # Limit max chunks to prevent memory issues
+        max_chunks = 200
+        
+        while start < len(text) and chunk_index < max_chunks:
             end = start + chunk_size
             
             # Try to break at sentence boundary
@@ -90,7 +99,7 @@ class EmbeddingService:
             if start >= len(text) - overlap:
                 break
         
-        logger.info(f"Split text into {len(chunks)} chunks")
+        logger.info(f"Split text into {len(chunks)} chunks (text length: {len(text)} chars)")
         return chunks
     
     def generate_embedding(self, text: str, input_type: str = "document") -> List[float]:
@@ -252,8 +261,10 @@ class EmbeddingService:
         """
         top_k = top_k or settings.TOP_K_RETRIEVAL
         
+        logger.info(f"[VECTOR SEARCH] Generating query embedding for: '{query[:50]}...'")
         # Generate query embedding with input_type="query" for better retrieval
         query_embedding = self.generate_embedding(query, input_type="query")
+        logger.info(f"[VECTOR SEARCH] Query embedding generated (dim: {len(query_embedding)})")
         
         try:
             # Call Supabase RPC function for vector similarity search
@@ -265,11 +276,17 @@ class EmbeddingService:
             if document_id:
                 params["filter_document_id"] = document_id
             
+            logger.info(f"[VECTOR SEARCH] Calling Supabase match_document_embeddings for doc {document_id}")
             result = self.supabase.rpc("match_document_embeddings", params).execute()
+            
+            if result.data:
+                logger.info(f"[VECTOR SEARCH] Found {len(result.data)} similar chunks")
+            else:
+                logger.warning(f"[VECTOR SEARCH] No similar chunks found for document {document_id}")
             
             return result.data
         except Exception as e:
-            logger.error(f"Error searching similar chunks: {str(e)}")
+            logger.error(f"[VECTOR SEARCH] Error: {str(e)}")
             raise
     
     def delete_document_embeddings(self, document_id: int) -> bool:

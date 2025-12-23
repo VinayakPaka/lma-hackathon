@@ -26,7 +26,6 @@ async def extract_text_background(document_id: int, file_path: str, file_type: s
     """Background task to extract text from uploaded document and generate embeddings."""
     from app.database import AsyncSessionLocal
     from app.services.embedding_service import embedding_service
-    from app.models.document_embedding import DocumentChunk
     from app.config import settings
     import traceback
     
@@ -74,29 +73,12 @@ async def extract_text_background(document_id: int, file_path: str, file_type: s
                             embeddings = embedding_service.generate_embeddings_batch(chunk_texts)
                             logger.info(f"Generated {len(embeddings)} embeddings")
                             
-                            # Store in Supabase
+                            # Store in Supabase (this also handles retrieval via vector search)
                             logger.info(f"Storing embeddings in Supabase for document {document_id}")
                             embedding_ids = embedding_service.store_embeddings(
                                 document_id, chunks, embeddings
                             )
-                            logger.info(f"Stored {len(embedding_ids)} embeddings in Supabase")
-                            
-                            # Store chunk references in local database using a fresh session
-                            await db.close()
-                            db = AsyncSessionLocal()
-                            
-                            for chunk, emb_id in zip(chunks, embedding_ids):
-                                chunk_record = DocumentChunk(
-                                    document_id=document_id,
-                                    chunk_index=chunk["index"],
-                                    chunk_text=chunk["text"][:500],  # Store preview
-                                    embedding_id=emb_id,
-                                    token_count=chunk["token_count"]
-                                )
-                                db.add(chunk_record)
-                            
-                            await db.commit()
-                            logger.info(f"Successfully completed embedding generation for document {document_id}: {len(embedding_ids)} embeddings stored")
+                            logger.info(f"Successfully stored {len(embedding_ids)} embeddings in Supabase for document {document_id}")
                         else:
                             logger.warning(f"No chunks created from document {document_id} text")
                         
