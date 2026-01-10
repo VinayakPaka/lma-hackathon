@@ -477,7 +477,8 @@ class SBTiDataService:
         sector: str,
         scope: str = "Scope 1+2",
         sbti_aligned: bool = False,
-        region: Optional[str] = None
+        region: Optional[str] = None,
+        peer_data: Optional[Dict[str, Any]] = None  # NEW: Accept pre-computed peer data
     ) -> Dict[str, Any]:
         """
         Classify target ambition using deterministic rules.
@@ -494,36 +495,54 @@ class SBTiDataService:
             scope: Emission scope
             sbti_aligned: Whether company has SBTi validation
             region: Optional region filter
+            peer_data: Pre-computed peer data from sector_matching_service (optional)
         
         Returns:
             Classification result with full context
         """
-        percentile_result = self.compute_percentiles(sector, scope, region)
-        use_fallback = False
-        match_quality = percentile_result.get("match_quality", "exact")
+        percentiles = None
+        confidence_level = "MEDIUM"
+        match_quality = "exact"
+        peer_count = 0
         
-        # If no peers found, use fallback benchmarks instead of failing
-        if "error" in percentile_result and percentile_result.get("peer_count", 0) < 3:
-            logger.error(f"⚠️ Insufficient peer data for sector: {sector} (only {percentile_result.get('peer_count', 0)} peers found)")
-            logger.error(f"Please check if SBTi data files are properly loaded or if sector name is correct")
-            logger.warning(f"Using fallback benchmarks for sector: {sector}")
-            use_fallback = True
-            fallback_data = self._get_fallback_benchmark(sector)
-            percentiles = {
+        # PRIORITY 1: Use pre-computed peer data if provided (from sector_matching_service)
+        if peer_data and peer_data.get("peer_count", 0) >= 3 and "percentiles" in peer_data:
+            percentiles = peer_data["percentiles"]
+            peer_count = peer_data["peer_count"]
+            confidence_level = peer_data.get("confidence_level", "HIGH")
+            match_quality = "direct_from_targets"
+            logger.info(f"Using pre-computed peer data: {peer_count} peers, confidence: {confidence_level}")
+        
+        # PRIORITY 2: Try compute_percentiles if no pre-computed data
+        if percentiles is None:
+            percentile_result = self.compute_percentiles(sector, scope, region)
+            
+            if "error" not in percentile_result and percentile_result.get("peer_count", 0) >= 3:
+                percentiles = percentile_result["percentiles"]
+                peer_count = percentile_result.get("peer_count", 0)
+                confidence_level = percentile_result.get("confidence_level", "MEDIUM")
+                match_quality = percentile_result.get("match_quality", "computed")
+        
+        # PRIORITY 3: Return error if no peer data available (NO FALLBACK!)
+        if percentiles is None:
+            logger.error(f"❌ No peer data available for sector: {sector}")
+            logger.error(f"Please ensure SBTi data is loaded and sector name is correctly matched")
+            return {
+                "classification": "UNKNOWN",
+                "rationale": f"No peer data available for sector '{sector}'. Cannot classify ambition without benchmarks.",
+                "borrower_target": borrower_target,
+                "peer_median": None,
+                "peer_p75": None,
+                "sbti_aligned": sbti_aligned,
+                "confidence_level": "INSUFFICIENT",
                 "peer_count": 0,
-                "min": fallback_data["min"],
-                "p25": (fallback_data["min"] + fallback_data["median"]) / 2,
-                "median": fallback_data["median"],
-                "p75": fallback_data["p75"],
-                "max": fallback_data["max"],
-                "mean": fallback_data["median"],
-                "std_dev": 10.0
+                "error": f"No peer data for sector '{sector}'",
+                "filters_applied": {
+                    "sector": sector,
+                    "scope": scope,
+                    "region": region
+                }
             }
-            match_quality = "fallback"
-            confidence_level = "LOW"
-        else:
-            percentiles = percentile_result["percentiles"]
-            confidence_level = percentile_result["confidence_level"]
         
         median = percentiles["median"]
         p75 = percentiles["p75"]
@@ -546,12 +565,6 @@ class SBTiDataService:
         else:
             final_class = base_class
         
-        # Add prominent fallback warning if applicable
-        if use_fallback:
-            logger.warning("⚠️ USING FALLBACK BENCHMARK DATA - Results may not be accurate!")
-            logger.warning(f"Reason: Insufficient peer companies found in SBTi database for sector '{sector}'")
-            rationale += " (using industry-standard benchmarks)"
-        
         return {
             "classification": final_class,
             "rationale": rationale,
@@ -563,9 +576,9 @@ class SBTiDataService:
             "sbti_aligned": sbti_aligned,
             "percentile_rank": self._calculate_percentile_rank(borrower_target, percentiles),
             "confidence_level": confidence_level,
-            "peer_count": percentiles["peer_count"],
+            "peer_count": peer_count,
             "match_quality": match_quality,
-            "using_fallback": use_fallback,
+            "using_fallback": False,
             "filters_applied": {
                 "sector": sector,
                 "scope": scope,

@@ -13,16 +13,40 @@ from app.services.embedding_service import embedding_service
 logger = logging.getLogger(__name__)
 
 
-# Structured extraction prompt - returns JSON only
-KPI_EXTRACTION_PROMPT = """You are a document extraction assistant. Your task is to extract ONLY facts that are explicitly stated in the document. Do not infer or assume any information.
+# Enhanced CSRD/ESRS-aware extraction prompt
+KPI_EXTRACTION_PROMPT = """You are an expert CSRD/ESRS sustainability report analyst. Extract ONLY facts explicitly stated in the document.
+
+CONTEXT - CSRD/ESRS FRAMEWORK:
+- CSRD = Corporate Sustainability Reporting Directive (EU regulation)
+- ESRS = European Sustainability Reporting Standards (12 standards: ESRS 1-2, E1-E5, S1-S4, G1)
+- Reports follow double materiality: impact materiality + financial materiality
+- Key sections: Governance, Strategy, Material Impacts/Risks/Opportunities, Metrics & Targets
 
 Document Context:
 {context}
 
-IMPORTANT: Years may be written in multiple formats:
-- Standard: "2019", "2020"
-- Fiscal year: "FY 2019", "FY19", "FY'19", "Fiscal Year 2019", "Fiscal 2019"
-Always extract the actual year (e.g., 2019) regardless of format.
+EXTRACTION INSTRUCTIONS:
+1. YEARS - Multiple formats exist:
+   - Standard: "2019", "2020"
+   - Fiscal year: "FY 2019", "FY19", "FY'19", "Fiscal Year 2019", "Fiscal 2019"
+   Always extract the actual year (e.g., 2019)
+
+2. SCOPE - Understand GHG Protocol scopes:
+   - Scope 1: Direct emissions (own operations)
+   - Scope 2: Indirect emissions (purchased energy)
+   - Scope 3: Value chain emissions (upstream/downstream)
+   - Look for: "Scope 1+2", "Scope 1+2+3", "Full value chain"
+
+3. TARGETS - Look for:
+   - Science-Based Targets (SBTi validated targets)
+   - Absolute vs. intensity targets (per revenue, per product)
+   - Interim milestones (e.g., 2030, 2040) and long-term (2050)
+   - ESRS E1 climate targets, taxonomy-aligned targets
+
+4. MATERIALITY - Identify if mentioned:
+   - Double materiality assessment conducted
+   - Material topics identified per ESRS standards
+   - Stakeholder engagement in materiality process
 
 Extract the following information if present. If a field is not found, return null.
 Respond ONLY with valid JSON, no additional text:
@@ -223,11 +247,11 @@ class KPIExtractionService:
         try:
             # If full text not provided, retrieve relevant chunks
             if not full_text:
-                # Search for KPI-related content
+                # Search for CSRD/ESRS-specific KPI content with enhanced query
                 kpi_chunks = await embedding_service.search_similar(
-                    query="sustainability targets emissions reduction KPI baseline scope",
+                    query="ESRS sustainability targets emissions reduction KPI baseline scope science-based targets SBTi materiality CSRD climate change mitigation",
                     document_id=document_id,
-                    top_k=10
+                    top_k=15
                 )
                 
                 if not kpi_chunks:

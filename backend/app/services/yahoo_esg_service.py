@@ -67,10 +67,12 @@ class YahooESGService:
             sustainability = stock.sustainability
             
             if sustainability is None or sustainability.empty:
+                logger.warning(f"No ESG data available for ticker: {ticker}")
                 return {
                     "available": False,
                     "error": "No ESG data available for this ticker",
-                    "ticker": ticker
+                    "ticker": ticker,
+                    "suggestion": "Consider alternative ticker symbols or manual ESG assessment"
                 }
             
             # Extract scores (Sustainalytics data)
@@ -103,11 +105,18 @@ class YahooESGService:
             }
             
         except Exception as e:
-            logger.error(f"Yahoo ESG error for {ticker}: {e}")
+            # Log at warning level instead of error since this is optional contextual data
+            error_str = str(e)
+            if "404" in error_str or "Not Found" in error_str:
+                logger.warning(f"Yahoo Finance data not found for ticker {ticker} (404 error)")
+            else:
+                logger.warning(f"Yahoo ESG fetch failed for {ticker}: {type(e).__name__}: {error_str}")
+            
             return {
                 "available": False,
-                "error": str(e),
-                "ticker": ticker
+                "error": f"Unable to fetch ESG data: {error_str}",
+                "ticker": ticker,
+                "suggestion": "ESG data is optional contextual information. Evaluation can continue without it."
             }
     
     def _safe_get(self, df, key: str) -> Optional[float]:

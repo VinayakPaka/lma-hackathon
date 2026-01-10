@@ -429,28 +429,41 @@ class BankerReportService:
     ) -> Dict[str, Any]:
         """Build baseline assessment section."""
         verification = extraction_data.get("verification", {})
+        baseline_verification = extraction_data.get("baseline_verification", {})
         
-        # Determine data quality
-        if verification.get("third_party_verified"):
+        # Use SBTi-based verification if available (NEW!)
+        if baseline_verification.get("level") == "HIGH":
             quality = "EXCELLENT"
+            verification_source = baseline_verification.get("source", "SBTi Database")
+            verification_rationale = baseline_verification.get("rationale", "SBTi validated baseline")
+        elif verification.get("third_party_verified"):
+            quality = "EXCELLENT"
+            verification_source = verification.get("verifier_name", "Third Party")
+            verification_rationale = "Third-party verified baseline"
         elif verification.get("assurance_level") == "limited":
             quality = "GOOD"
+            verification_source = "Limited Assurance"
+            verification_rationale = "Limited assurance provided"
         else:
-            quality = "MODERATE"
+            quality = baseline_verification.get("level", "MODERATE")
+            verification_source = baseline_verification.get("source", "Self-reported")
+            verification_rationale = baseline_verification.get("rationale", "Self-reported baseline, no external verification")
         
         return {
             "data_quality": {
                 "score": quality,
                 "factors": {
-                    "verification": "third_party_verified" if verification.get("third_party_verified") else "self_reported",
-                    "verifier": verification.get("verifier_name"),
-                    "assurance_level": verification.get("assurance_level"),
-                    "methodology_disclosed": True  # Assume from CSRD requirement
-                }
+                    "verification": verification_source,
+                    "verifier": verification.get("verifier_name") or baseline_verification.get("source"),
+                    "assurance_level": verification.get("assurance_level") or baseline_verification.get("level"),
+                    "methodology_disclosed": True,  # Assume from CSRD requirement
+                    "sbti_validated": baseline_verification.get("level") == "HIGH"
+                },
+                "rationale": verification_rationale
             },
             "baseline_value": evaluation_data.get("baseline_value"),
             "baseline_year": evaluation_data.get("baseline_year"),
-            "evidence": verification.get("evidence_quote")
+            "evidence": verification.get("evidence_quote") or baseline_verification.get("rationale")
         }
     
     def _build_risk_flags(
@@ -747,6 +760,86 @@ class BankerReportService:
                     body_style
                 )))
             story.append(ListFlowable(signal_list, bulletType='bullet'))
+        
+        story.append(Spacer(1, 15))
+        
+        # Evidence & Source Citations (NEW SECTION)
+        story.append(Paragraph("Evidence & Source Citations", header_style))
+        
+        evidence = achievability.get("evidence", {})
+        has_evidence = False
+        
+        # AI Narrative Summary
+        ai_narrative = report.get("executive_summary", {}).get("ai_narrative", "")
+        if ai_narrative:
+            has_evidence = True
+            story.append(Paragraph(
+                f"<b>AI Analysis Summary:</b> {ai_narrative[:500]}{'...' if len(ai_narrative) > 500 else ''}",
+                body_style
+            ))
+            story.append(Spacer(1, 8))
+        
+        # Sector Matching Evidence
+        sector_matching = report.get("peer_benchmarking", {}).get("sector_matching", {})
+        if sector_matching:
+            has_evidence = True
+            source = sector_matching.get("match_source", "")
+            matched_sector = sector_matching.get("matched_sbti_sector", "")
+            reasoning = sector_matching.get("match_reasoning", "")
+            
+            sector_text = f"<b>Sector Classification:</b> {matched_sector}"
+            if source == "sbti_direct_lookup":
+                sector_text += " (Direct SBTi database match - HIGH confidence)"
+            elif reasoning:
+                sector_text += f" - {reasoning[:100]}"
+            story.append(Paragraph(sector_text, body_style))
+            story.append(Spacer(1, 8))
+        
+        # Governance Evidence
+        governance = evidence.get("governance_evidence", {})
+        if governance and governance.get("evidence_quote"):
+            has_evidence = True
+            story.append(Paragraph(
+                f"<b>Governance Evidence:</b> \"{governance.get('evidence_quote', '')[:200]}...\"",
+                body_style
+            ))
+            if governance.get("page_number"):
+                story.append(Paragraph(
+                    f"<i>Source: Page {governance.get('page_number')}</i>",
+                    body_style
+                ))
+            story.append(Spacer(1, 8))
+        
+        # Verification Evidence
+        verification = evidence.get("verification_evidence", {})
+        if verification and verification.get("evidence_quote"):
+            has_evidence = True
+            verifier = verification.get("verifier_name", "Third Party")
+            story.append(Paragraph(
+                f"<b>Verification Status:</b> Verified by {verifier}",
+                body_style
+            ))
+            story.append(Paragraph(
+                f"\"{verification.get('evidence_quote', '')[:200]}...\"",
+                body_style
+            ))
+            story.append(Spacer(1, 8))
+        
+        # Past Performance Evidence
+        past_perf = evidence.get("past_performance", {})
+        if past_perf and past_perf.get("evidence_quote"):
+            has_evidence = True
+            story.append(Paragraph(
+                f"<b>Past Target Achievement:</b> \"{past_perf.get('evidence_quote', '')[:200]}...\"",
+                body_style
+            ))
+            story.append(Spacer(1, 8))
+        
+        if not has_evidence:
+            story.append(Paragraph(
+                "<i>No document evidence extracted. Upload CSRD or SPT documents for detailed citations.</i>",
+                body_style
+            ))
         
         story.append(Spacer(1, 15))
         

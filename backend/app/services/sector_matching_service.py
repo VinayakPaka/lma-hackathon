@@ -112,13 +112,179 @@ class SectorMatchingService:
         """Return the list of available SBTi sectors."""
         return SBTI_SECTORS.copy()
     
+    def lookup_company_in_sbti(self, company_name: str) -> Dict[str, Any]:
+        """
+        Look up company in SBTi targets data.
+        If found, return sector directly from data (more reliable than AI matching).
+        
+        Args:
+            company_name: Name of the company to search
+            
+        Returns:
+            Dictionary with company info and sector if found
+        """
+        if self.targets_df.empty:
+            logger.warning("SBTi data not loaded, cannot lookup company")
+            return {"found": False, "error": "SBTi data not loaded"}
+        
+        # Case-insensitive search for company name
+        company_lower = company_name.lower().strip()
+        matches = self.targets_df[
+            self.targets_df['company_name'].str.lower().str.strip().str.contains(
+                company_lower, na=False
+            )
+        ]
+        
+        if not matches.empty:
+            # Get the first match's sector
+            first_match = matches.iloc[0]
+            sector = first_match.get('sector', '')
+            matched_name = first_match.get('company_name', company_name)
+            
+            # Count how many targets this company has
+            target_count = len(matches)
+            
+            logger.info(f"Found company '{matched_name}' in SBTi data with sector '{sector}' ({target_count} targets)")
+            
+            return {
+                "found": True,
+                "company_name": matched_name,
+                "sector": sector,
+                "target_count": target_count,
+                "source": "sbti_direct_lookup",
+                "confidence": "HIGH"  # Direct lookup is always high confidence
+            }
+        
+        logger.info(f"Company '{company_name}' not found in SBTi database")
+        return {"found": False, "searched_name": company_name}
+    
+    def get_company_target_history(self, company_name: str) -> Dict[str, Any]:
+        """
+        Get comprehensive target history for a company from SBTi data.
+        Used for trajectory analysis and credibility signal detection.
+        
+        Returns:
+            - All targets (near-term, long-term, net-zero)
+            - Base year and target year for each
+            - Target values and types
+            - Validation status
+        """
+        if self.targets_df.empty:
+            return {"found": False, "error": "SBTi data not loaded"}
+        
+        # Case-insensitive search
+        company_lower = company_name.lower().strip()
+        matches = self.targets_df[
+            self.targets_df['company_name'].str.lower().str.strip().str.contains(
+                company_lower, na=False
+            )
+        ]
+        
+        if matches.empty:
+            return {"found": False, "company_name": company_name}
+        
+        import pandas as pd
+        
+        # Extract target details
+        targets = []
+        for _, row in matches.iterrows():
+            target_type = row.get('target', '')  # Near-term, Long-term, Net-zero
+            if pd.isna(target_type) or not target_type:
+                continue
+                
+            target_value = row.get('target_value')
+            if pd.notna(target_value):
+                # Convert decimal to percentage if needed
+                if isinstance(target_value, (int, float)) and 0 < target_value <= 1:
+                    target_value = target_value * 100
+            else:
+                target_value = None
+            
+            targets.append({
+                "target_type": str(target_type),
+                "scope": str(row.get('scope', '')),
+                "target_value_pct": round(target_value, 1) if target_value else None,
+                "base_year": int(row.get('base_year')) if pd.notna(row.get('base_year')) else None,
+                "target_year": int(row.get('target_year')) if pd.notna(row.get('target_year')) else None,
+                "status": row.get('status', ''),
+                "validation_route": row.get('validation_route', ''),
+                "target_classification": row.get('target_classification_short', '')
+            })
+        
+        # Get company-level info from first row
+        first = matches.iloc[0]
+        company_info = {
+            "company_name": first.get('company_name', company_name),
+            "sector": first.get('sector', ''),
+            "region": first.get('region', ''),
+            "sbti_id": first.get('sbti_id', '')
+        }
+        
+        # Check validation status (handle NaN values)
+        # If company has Near-term or Long-term targets in SBTi database, they are considered validated
+        # (SBTi only publishes validated targets)
+        has_validated_targets = any(
+            t.get('target_type', '').lower() in ['near-term', 'long-term', 'net-zero']
+            for t in targets
+        )
+        
+        # Also check explicit status field
+        explicit_validation = any(
+            isinstance(t.get('status'), str) and t.get('status', '').lower() in ['targets set', 'approved', 'validated']
+            for t in targets
+        )
+        
+        is_validated = has_validated_targets or explicit_validation
+        
+        # Determine near-term and long-term targets
+        near_term_targets = [t for t in targets if 'near' in t.get('target_type', '').lower()]
+        long_term_targets = [t for t in targets if 'long' in t.get('target_type', '').lower()]
+        net_zero_targets = [t for t in targets if 'net-zero' in t.get('target_type', '').lower() or 'net zero' in t.get('target_type', '').lower()]
+        
+        # Calculate trajectory info if we have both baseline and target
+        trajectory_info = None
+        if near_term_targets:
+            nt = near_term_targets[0]
+            if nt.get('base_year') and nt.get('target_year') and nt.get('target_value_pct'):
+                years = nt['target_year'] - nt['base_year']
+                if years > 0:
+                    annual_rate = nt['target_value_pct'] / years
+                    trajectory_info = {
+                        "base_year": nt['base_year'],
+                        "target_year": nt['target_year'],
+                        "total_reduction_pct": nt['target_value_pct'],
+                        "annual_reduction_rate": round(annual_rate, 2),
+                        "years_to_target": years,
+                        "scope": nt['scope']
+                    }
+        
+        logger.info(f"Extracted {len(targets)} targets for {company_name} (validated: {is_validated})")
+        
+        return {
+            "found": True,
+            "company_info": company_info,
+            "is_sbti_validated": is_validated,
+            "target_count": len(targets),
+            "near_term_targets": near_term_targets,
+            "long_term_targets": long_term_targets,
+            "net_zero_targets": net_zero_targets,
+            "all_targets": targets,
+            "trajectory_info": trajectory_info,
+            "source": "sbti_database"
+        }
+    
     async def research_company_sector(
         self,
         company_name: str,
         user_provided_industry: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Use AI to research the company and determine the best SBTi sector match.
+        Determine the best SBTi sector match for a company.
+        
+        Priority:
+        1. Direct lookup in SBTi data (most reliable)
+        2. AI research via Perplexity
+        3. Keyword-based fallback
         
         Args:
             company_name: Name of the company to research
@@ -127,6 +293,21 @@ class SectorMatchingService:
         Returns:
             Dictionary with matched sector and confidence
         """
+        # STEP 1: Try direct lookup in SBTi data first (user's great idea!)
+        sbti_lookup = self.lookup_company_in_sbti(company_name)
+        if sbti_lookup.get("found"):
+            logger.info(f"Using sector from direct SBTi lookup: {sbti_lookup['sector']}")
+            return {
+                "success": True,
+                "company_name": sbti_lookup.get("company_name", company_name),
+                "matched_sector": sbti_lookup["sector"],
+                "researched_industry": sbti_lookup["sector"],  # Same as sector for direct lookup
+                "confidence": "HIGH",
+                "reasoning": f"Company found directly in SBTi database with {sbti_lookup.get('target_count', 0)} targets",
+                "source": "sbti_direct_lookup"
+            }
+        
+        # STEP 2: AI research for companies not in SBTi database
         try:
             # Build the research prompt
             sectors_list = "\n".join([f"- {s}" for s in SBTI_SECTORS])
@@ -376,10 +557,31 @@ Important:
                 "error": "No peers found for this sector"
             }
         
-        # Filter by scope
-        scope_str = str(scope).replace("+", "")  # Handle "1+2" format
-        scope_mask = sector_df['scope'].astype(str).str.contains(scope_str, na=False)
+        # Filter by scope - properly handle SBTi scope format
+        # SBTi uses: '1+2', '1+2+3', 1, 2, 3, '1+3' (mixed int/string)
+        # User input might be: 'Scope 1+2', '1+2', 'Scope 1', etc.
+        scope_normalized = str(scope).replace("Scope ", "").strip()  # "Scope 1+2" -> "1+2"
+        
+        # Convert all scopes to string for comparison
+        sector_df_scopes = sector_df['scope'].astype(str).str.strip()
+        
+        # Try exact match first
+        scope_mask = sector_df_scopes == scope_normalized
+        
+        # If no exact match, try matching individual scopes (e.g., "1+2" should match rows with scope 1, 2, or 1+2)
+        if not scope_mask.any() and "+" in scope_normalized:
+            individual_scopes = scope_normalized.split("+")
+            scope_mask = sector_df_scopes.isin(individual_scopes + [scope_normalized])
+        
+        # If still no match, try contains as fallback
+        if not scope_mask.any():
+            # Remove + for contains check (e.g., "12" should match "1+2")
+            scope_digits = scope_normalized.replace("+", "")
+            scope_mask = sector_df_scopes.str.replace("+", "", regex=False).str.contains(scope_digits, na=False)
+        
         filtered_df = sector_df[scope_mask] if scope_mask.any() else sector_df
+        
+        logger.info(f"Scope filtering: '{scope}' -> '{scope_normalized}', matched {len(filtered_df)} rows")
         
         # Get target values (they vary in format, need to parse)
         target_values = []

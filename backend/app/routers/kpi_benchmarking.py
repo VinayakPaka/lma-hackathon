@@ -20,6 +20,9 @@ from app.services.compliance_service import compliance_checker
 from app.services.banker_report_service import banker_report_service
 from app.services.sector_matching_service import sector_matching_service
 from app.services.ai_summary_service import ai_summary_service
+from app.services.csrd_analyzer_service import csrd_analyzer_service
+from app.services.taxonomy_service import taxonomy_service
+from app.services.embedding_service import embedding_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/kpi-benchmark", tags=["KPI Benchmarking"])
@@ -354,12 +357,26 @@ async def run_full_evaluation(
         # 1. Extract KPIs from primary document if provided
         extraction_data = {}
         primary_doc = next((d for d in request.documents if d.is_primary), None)
+        
+        # FALLBACK: If no primary doc, use first document
+        if not primary_doc and len(request.documents) > 0:
+            primary_doc = request.documents[0]
+            logger.warning(f"No primary document marked, using document {primary_doc.document_id} as fallback")
+        
         if primary_doc:
-            extraction_result = await kpi_extraction_service.extract_kpis_from_document(
-                primary_doc.document_id
-            )
-            if extraction_result.get("success"):
-                extraction_data = extraction_result.get("extraction", {})
+            logger.info(f"Extracting KPIs from document {primary_doc.document_id}")
+            try:
+                extraction_result = await kpi_extraction_service.extract_kpis_from_document(
+                    primary_doc.document_id
+                )
+                if extraction_result.get("success"):
+                    extraction_data = extraction_result.get("extraction", {})
+                    logger.info(f"✓ KPI extraction successful for {request.company_name}")
+                else:
+                    logger.warning(f"KPI extraction failed: {extraction_result.get('error')}")
+            except Exception as extract_error:
+                logger.error(f"KPI extraction error: {extract_error}")
+                extraction_data = {}
             
             # Extract additional evidence signals for detailed report
             try:
@@ -389,6 +406,35 @@ async def run_full_evaluation(
                 logger.info(f"Evidence extraction complete for {request.company_name}")
             except Exception as evidence_error:
                 logger.warning(f"Evidence extraction failed: {evidence_error}")
+            
+            # =========================================================================
+            # CSRD COMPLIANCE & EU TAXONOMY ANALYSIS
+            # =========================================================================
+            try:
+                logger.info(f"🔍 Analyzing CSRD compliance for {request.company_name}")
+                csrd_analysis = await csrd_analyzer_service.analyze_csrd_compliance(
+                    document_id=primary_doc.document_id,
+                    company_name=request.company_name
+                )
+                extraction_data["csrd_compliance"] = csrd_analysis
+                logger.info(f"✓ CSRD compliance score: {csrd_analysis.get('compliance_score', {}).get('overall_score', 'N/A')}")
+                
+                logger.info(f"🔍 Analyzing EU Taxonomy alignment for {request.company_name}")
+                taxonomy_analysis = await taxonomy_service.analyze_taxonomy_alignment(
+                    document_id=primary_doc.document_id,
+                    company_name=request.company_name,
+                    embedding_service=embedding_service
+                )
+                extraction_data["taxonomy_alignment"] = taxonomy_analysis
+                
+                if taxonomy_analysis.get("taxonomy_disclosed"):
+                    logger.info(f"✓ EU Taxonomy disclosed - Quality: {taxonomy_analysis.get('quality_score', {}).get('quality_level', 'N/A')}")
+                else:
+                    logger.info("⚠️ No EU Taxonomy disclosure found")
+                    
+            except Exception as csrd_error:
+                logger.error(f"CSRD/Taxonomy analysis error: {csrd_error}")
+            # =========================================================================
         
         # 2. INTELLIGENT SECTOR MATCHING - Use AI to research company and match to SBTi sector
         logger.info(f"Researching sector for {request.company_name} (user provided: {request.industry_sector})")
@@ -402,9 +448,16 @@ async def run_full_evaluation(
         sector_confidence = sector_match.get("confidence", "LOW")
         logger.info(f"Matched sector: {matched_sector} (confidence: {sector_confidence})")
         
-        # 3. Check SBTi alignment
-        sbti_check = sbti_data_service.check_sbti_commitment(request.company_name)
-        sbti_aligned = sbti_check.get("found", False)
+        # 3. Get company target history from SBTi (for trajectory analysis and validation check)
+        sbti_target_history = sector_matching_service.get_company_target_history(request.company_name)
+        sbti_aligned = sbti_target_history.get("is_sbti_validated", False)
+        
+        # Also check with legacy method for backward compatibility
+        if not sbti_aligned:
+            sbti_check = sbti_data_service.check_sbti_commitment(request.company_name)
+            sbti_aligned = sbti_check.get("found", False)
+        
+        logger.info(f"SBTi aligned: {sbti_aligned}, Target history found: {sbti_target_history.get('found')}")
         
         # 4. Get peer data for the matched sector
         peer_data = sector_matching_service.get_peer_targets_for_sector(
@@ -413,12 +466,14 @@ async def run_full_evaluation(
         )
         
         # 5. Peer benchmarking and ambition classification using matched sector
+        # CRITICAL: Pass peer_data from sector_matching_service to avoid fallback
         ambition_result = sbti_data_service.classify_ambition(
             borrower_target=reduction_pct,
             sector=matched_sector,  # Use AI-matched sector
             scope=request.emissions_scope,
             sbti_aligned=sbti_aligned,
-            region=request.region
+            region=request.region,
+            peer_data=peer_data  # NEW: Pass pre-computed peer data
         )
         
         # Add sector matching info to ambition result
@@ -431,12 +486,56 @@ async def run_full_evaluation(
             "researched_industry": sector_match.get("researched_industry")
         }
         
+        # Add target history for trajectory analysis (NEW!)
+        if sbti_target_history.get("found"):
+            ambition_result["sbti_target_history"] = {
+                "validated": sbti_target_history.get("is_sbti_validated"),
+                "target_count": sbti_target_history.get("target_count"),
+                "trajectory": sbti_target_history.get("trajectory_info"),
+                "near_term_targets": sbti_target_history.get("near_term_targets", [])[:2],
+                "long_term_targets": sbti_target_history.get("long_term_targets", [])[:2]
+            }
+        
         # Use peer data if available
         if peer_data.get("peer_count", 0) > 0 and "percentiles" in peer_data:
             ambition_result["peer_count"] = peer_data["peer_count"]
             ambition_result["peer_median"] = peer_data["percentiles"]["median"]
             ambition_result["peer_p75"] = peer_data["percentiles"]["p75"]
             ambition_result["confidence_level"] = peer_data["confidence_level"]
+        
+        # Set baseline verification based on SBTi status AND CSRD assurance (ENHANCED!)
+        verification_level = "MODERATE"
+        verification_source = "Self-reported"
+        verification_rationale = "Baseline from borrower documents"
+        
+        # Check CSRD data quality for assurance level
+        if extraction_data.get("csrd_compliance"):
+            data_quality = extraction_data["csrd_compliance"].get("data_quality", {})
+            assurance_level = data_quality.get("assurance_level")
+            verifier_name = data_quality.get("verifier_name")
+            
+            if assurance_level == "reasonable":
+                verification_level = "HIGH"
+                verification_source = f"Reasonable Assurance by {verifier_name or 'Third-party'}"
+                verification_rationale = "Baseline verified with reasonable assurance per CSRD requirements"
+            elif assurance_level == "limited":
+                verification_level = "MEDIUM-HIGH"
+                verification_source = f"Limited Assurance by {verifier_name or 'Third-party'}"
+                verification_rationale = "Baseline verified with limited assurance (CSRD compliant)"
+        
+        # SBTi validation overrides to HIGH
+        if sbti_aligned:
+            verification_level = "HIGH"
+            verification_source = "SBTi Database + " + verification_source
+            verification_rationale = f"Baseline verified through SBTi validation ({sbti_target_history.get('target_count', 0)} validated targets) and external assurance"
+        
+        extraction_data["baseline_verification"] = {
+            "level": verification_level,
+            "source": verification_source,
+            "rationale": verification_rationale
+        }
+        
+        logger.info(f"📊 Baseline verification: {verification_level} ({verification_source})")
         
         # 4. Credibility assessment - provide meaningful default when no document
         credibility_result = {

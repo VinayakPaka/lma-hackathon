@@ -200,7 +200,7 @@ class EmbeddingService:
         embeddings: List[List[float]]
     ) -> List[str]:
         """
-        Store embeddings in Supabase vector store.
+        Store embeddings in Supabase vector store using batch inserts.
         
         Args:
             document_id: ID of the source document
@@ -210,37 +210,51 @@ class EmbeddingService:
         Returns:
             List of embedding IDs
         """
-        embedding_ids = []
+        if len(chunks) != len(embeddings):
+            raise ValueError(f"Chunks ({len(chunks)}) and embeddings ({len(embeddings)}) count mismatch")
         
+        embedding_ids = []
+        batch_data = []
+        
+        # Prepare all records for batch insert
         for chunk, embedding in zip(chunks, embeddings):
             # Generate unique ID for this embedding
             content_hash = hashlib.md5(chunk["text"].encode()).hexdigest()[:12]
             embedding_id = f"doc_{document_id}_chunk_{chunk['index']}_{content_hash}"
             
-            try:
-                # Insert into Supabase
-                data = {
-                    "id": embedding_id,
-                    "document_id": document_id,
-                    "chunk_index": chunk["index"],
-                    "content": chunk["text"],
-                    "embedding": embedding,
-                    "metadata": {
-                        "start_char": chunk["start_char"],
-                        "end_char": chunk["end_char"],
-                        "token_count": chunk["token_count"]
-                    }
+            data = {
+                "id": embedding_id,
+                "document_id": document_id,
+                "chunk_index": chunk["index"],
+                "content": chunk["text"],
+                "embedding": embedding,
+                "metadata": {
+                    "start_char": chunk["start_char"],
+                    "end_char": chunk["end_char"],
+                    "token_count": chunk["token_count"]
                 }
-                
-                self.supabase.table("document_embeddings").upsert(data).execute()
-                embedding_ids.append(embedding_id)
-                
-            except Exception as e:
-                logger.error(f"Error storing embedding {embedding_id}: {str(e)}")
-                raise
+            }
+            
+            batch_data.append(data)
+            embedding_ids.append(embedding_id)
         
-        logger.info(f"Stored {len(embedding_ids)} embeddings for document {document_id}")
-        return embedding_ids
+        try:
+            # Batch insert in chunks of 50 to avoid request size limits
+            batch_size = 50
+            for i in range(0, len(batch_data), batch_size):
+                batch = batch_data[i:i + batch_size]
+                logger.debug(f"Inserting batch {i//batch_size + 1}/{(len(batch_data) + batch_size - 1)//batch_size} ({len(batch)} embeddings)")
+                self.supabase.table("document_embeddings").upsert(batch).execute()
+                logger.info(f"Stored batch {i//batch_size + 1}/{(len(batch_data) + batch_size - 1)//batch_size}")
+            
+            logger.info(f"Stored {len(embedding_ids)} embeddings for document {document_id}")
+            return embedding_ids
+            
+        except Exception as e:
+            logger.error(f"Error storing embeddings in batch: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
     
     def search_similar(
         self, 

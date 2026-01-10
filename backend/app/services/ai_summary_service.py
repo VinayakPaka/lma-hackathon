@@ -64,7 +64,17 @@ Recommendation: {recommendation}
 SBTi Aligned: {ambition_result.get('sbti_aligned', False)}
 """
         
-        prompt = f"""You are a senior sustainability finance analyst writing an executive summary for a bank credit committee.
+        prompt = f"""You are a senior sustainability finance analyst specializing in CSRD/ESRS compliance and green finance. 
+        
+You are writing an executive summary for a bank credit committee evaluating a Sustainability-Linked Loan (SLL) or Green Loan application.
+
+REGULATORY CONTEXT:
+- CSRD (Corporate Sustainability Reporting Directive) mandates sustainability reporting for 42,500+ EU companies
+- ESRS (European Sustainability Reporting Standards): 12 standards covering Environment (E1-E5), Social (S1-S4), Governance (G1)
+- Double materiality: Companies must report impacts on environment/society AND financial risks/opportunities
+- Banks require ambitious, credible, verified targets aligned with science-based pathways (SBTi, Paris Agreement)
+
+Write an executive summary for a bank credit committee.
 
 Based on this KPI assessment data:
 {context}
@@ -112,7 +122,15 @@ Respond with ONLY the narrative text, no headers or formatting."""
         p75 = ambition_result.get('peer_p75', 0)
         peer_count = ambition_result.get('peer_count', 0)
         
-        prompt = f"""As a sustainability finance analyst, explain this ambition assessment:
+        prompt = f"""As a CSRD/ESRS expert and sustainability finance analyst, explain this ambition assessment.
+
+CONTEXT - Target Ambition for Green Finance:
+- Science-Based Targets Initiative (SBTi): Validated targets aligned with 1.5°C pathway
+- Peer benchmarking: Compare against SBTi database of 5,000+ companies with validated targets
+- ESRS E1 Climate Change: Requires disclosure of GHG reduction targets, transition plans
+- Ambition levels: WEAK (below median) → MARKET_STANDARD (median to p75) → ABOVE_MARKET (>p75) → SCIENCE_ALIGNED (>p75 + SBTi)
+
+Explain this ambition assessment:
 
 Sector: {sector}
 Company Target: {target}% reduction
@@ -160,7 +178,20 @@ Use professional banking language. Be specific with numbers."""
         detected = sum(1 for s in signals.values() if isinstance(s, dict) and s.get('detected'))
         total = len(signals) if signals else 6
         
-        prompt = f"""As a sustainability finance analyst, explain this credibility assessment:
+        prompt = f"""As a CSRD/ESRS compliance expert and sustainability finance analyst, explain this credibility assessment.
+
+CONTEXT - Credibility Signals for Green Finance:
+- CSRD requires: Board oversight, management incentives linked to ESG, external assurance (limited/reasonable)
+- ESRS 2 (General Disclosures): Mandatory governance structure, strategy, due diligence disclosure
+- Key credibility factors:
+  * Past performance: Track record of meeting previous targets
+  * Third-party verification: Limited or reasonable assurance by statutory auditor or IASP
+  * Governance: Board-level sustainability oversight, dedicated committees
+  * Management incentives: Executive compensation linked to ESG/climate targets
+  * SBTi commitment: Validated by Science Based Targets initiative
+  * Transition plan: ESRS E1 requires climate transition plan aligned with Paris Agreement
+
+Explain this credibility assessment:
 
 Credibility Level: {level}
 Signals Detected: {detected} out of {total}
@@ -209,7 +240,18 @@ Use professional banking language."""
         baseline_value = evaluation_data.get('baseline_value', 0)
         baseline_year = evaluation_data.get('baseline_year', 'N/A')
         
-        prompt = f"""As a sustainability finance analyst, assess this baseline data quality:
+        prompt = f"""As a CSRD/ESRS compliance expert, assess this baseline data quality.
+
+CONTEXT - Data Quality Requirements:
+- CSRD mandates external assurance: Limited assurance (from 2025) → Reasonable assurance (from 2028+)
+- ESRS requires: Methodology disclosure, calculation standards (GHG Protocol), uncertainty disclosure
+- Data quality factors:
+  * Third-party verification: Independent auditor or IASP (Independent Assurance Service Provider)
+  * Assurance level: Limited (review procedures) vs Reasonable (audit-level procedures)
+  * Methodology: GHG Protocol, ISO 14064, sector-specific standards
+  * Baseline quality: HIGH (verified, SBTi-validated) → MODERATE (self-reported) → LOW (no verification)
+
+Assess this baseline data quality:
 
 Baseline Value: {baseline_value}
 Baseline Year: {baseline_year}
