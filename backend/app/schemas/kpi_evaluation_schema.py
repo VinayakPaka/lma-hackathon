@@ -47,13 +47,28 @@ class KPIEvaluationResponse(BaseModel):
     company_name: str
     metric: str
     status: str
+    
+    # Backwards compatibility / Simple fields
     result_summary: Optional[str] = None
-    assessment_grade: Optional[str] = None # WEAK, MODERATE, AMBITIOUS
+    assessment_grade: Optional[str] = None
     success_probability: Optional[float] = None
     needs_review: bool = False
-    banker_decision: str
-    created_at: datetime
     
+    # Banker Fields
+    banker_decision: Optional[str] = "PENDING"
+    created_at: datetime
+
+    # Rich Report Fields (Matching Frontend EvaluationResult interface)
+    report_header: Optional[Dict[str, Any]] = None
+    executive_summary: Optional[Dict[str, Any]] = None
+    peer_benchmarking: Optional[Dict[str, Any]] = None
+    achievability_assessment: Optional[Dict[str, Any]] = None
+    risk_flags: Optional[List[Dict[str, Any]]] = None
+    regulatory_compliance: Optional[Dict[str, Any]] = None
+    visuals: Optional[Dict[str, Any]] = None # New Visuals Field
+    final_decision: Optional[Dict[str, Any]] = None
+    detailed_report: Optional[Dict[str, Any]] = None
+
     class Config:
         from_attributes = True
 

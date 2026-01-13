@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { kpiApi, kpiEvaluationApi } from '@/lib/api'
+import { kpiEvaluationApi } from '@/lib/api'
 import {
-    BarChart3, Loader2, Target, TrendingUp, FileText, Upload,
+    Loader2, Target, TrendingUp, FileText, Upload,
     CheckCircle2, XCircle, AlertTriangle, ChevronRight, Plus,
-    Building2, Calendar, Percent, Scale, FileCheck
+    Building2, Scale, FileCheck
 } from 'lucide-react'
 
 type EvaluationStep = 'form' | 'documents' | 'running' | 'result'

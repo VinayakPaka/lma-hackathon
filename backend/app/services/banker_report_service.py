@@ -18,6 +18,7 @@ from reportlab.platypus import (
     PageBreak, ListFlowable, ListItem
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from reportlab.graphics.shapes import Drawing, Rect, String, PolyLine
 
 from app.services.sbti_data_service import sbti_data_service
 from app.services.credibility_service import credibility_service
@@ -30,13 +31,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ReportHeader:
     company_name: str
-    lei: Optional[str]
-    ticker: Optional[str]
-    loan_type: str
-    facility_amount: str
-    tenor_years: int
-    margin_adjustment_bps: Optional[int]
-    analysis_date: str
+    lei: Optional[str] = None
+    ticker: Optional[str] = None
+    loan_type: str = "Sustainability-Linked Loan"
+    facility_amount: Optional[str] = None
+    tenor_years: Optional[int] = None
+    margin_adjustment_bps: Optional[int] = None
+    analysis_date: str = ""
     analyst: str = "System Generated"
     review_required: bool = True
 
@@ -247,8 +248,8 @@ class BankerReportService:
             lei=evaluation_data.get("lei"),
             ticker=evaluation_data.get("ticker"),
             loan_type=evaluation_data.get("loan_type", "Sustainability-Linked Loan"),
-            facility_amount=evaluation_data.get("facility_amount", "Not specified"),
-            tenor_years=evaluation_data.get("tenor_years", 0),
+            facility_amount=evaluation_data.get("facility_amount"),
+            tenor_years=evaluation_data.get("tenor_years"),
             margin_adjustment_bps=evaluation_data.get("margin_adjustment_bps"),
             analysis_date=datetime.now().strftime("%Y-%m-%d"),
             review_required=True
@@ -664,8 +665,214 @@ class BankerReportService:
             spaceAfter=6,
             alignment=TA_JUSTIFY
         )
+
+        def _escape_html(text: Any) -> str:
+            s = "" if text is None else str(text)
+            return (
+                s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+
+        def _append_bullets(items: List[str]):
+            safe_items = [i for i in (items or []) if i]
+            if not safe_items:
+                return
+            story.append(ListFlowable(
+                [ListItem(Paragraph(_escape_html(i), body_style)) for i in safe_items],
+                bulletType='bullet'
+            ))
+
+        def _bar_chart(title: str, labels: List[str], values: List[float]) -> Drawing:
+            width, height = 460, 140
+            d = Drawing(width, height)
+            d.add(String(0, height - 14, _escape_html(title), fontSize=10))
+
+            # Plot area
+            left, bottom = 10, 20
+            plot_w, plot_h = width - 20, height - 40
+            d.add(Rect(left, bottom, plot_w, plot_h, strokeColor=colors.lightgrey, fillColor=None, strokeWidth=0.5))
+
+            vals = [float(v or 0) for v in (values or [])]
+            max_v = max(vals) if vals else 0.0
+            max_v = max(max_v, 1.0)
+            n = max(len(vals), 1)
+            bar_gap = 8
+            bar_w = max((plot_w - (n + 1) * bar_gap) / n, 10)
+
+            for i, (lab, val) in enumerate(zip(labels or [], vals)):
+                x = left + bar_gap + i * (bar_w + bar_gap)
+                h = (val / max_v) * (plot_h - 20)
+                d.add(Rect(x, bottom, bar_w, h, fillColor=colors.HexColor("#2d7a4a"), strokeColor=None))
+                d.add(String(x, bottom + h + 2, f"{val:.1f}", fontSize=8))
+                d.add(String(x, bottom - 12, _escape_html(lab)[:18], fontSize=7))
+            return d
+
+        def _line_chart(title: str, labels: List[str], values: List[float]) -> Drawing:
+            width, height = 460, 160
+            d = Drawing(width, height)
+            d.add(String(0, height - 14, _escape_html(title), fontSize=10))
+
+            left, bottom = 10, 20
+            plot_w, plot_h = width - 20, height - 40
+            d.add(Rect(left, bottom, plot_w, plot_h, strokeColor=colors.lightgrey, fillColor=None, strokeWidth=0.5))
+
+            vals = [float(v or 0) for v in (values or [])]
+            if not vals:
+                return d
+            max_v = max(vals)
+            min_v = min(vals)
+            if max_v == min_v:
+                max_v += 1.0
+            n = len(vals)
+
+            points = []
+            for i, val in enumerate(vals):
+                x = left + (plot_w * i / max(n - 1, 1))
+                y = bottom + ((val - min_v) / (max_v - min_v)) * (plot_h - 10)
+                points.extend([x, y])
+                if i < len(labels or []):
+                    d.add(String(x, bottom - 12, _escape_html(labels[i])[:10], fontSize=7))
+            d.add(PolyLine(points, strokeColor=colors.HexColor("#1a5f2a"), strokeWidth=2))
+            return d
         
         story = []
+
+        # If a structured detailed_report exists, render it for memo-style PDF parity.
+        detailed = report.get("detailed_report") if isinstance(report, dict) else None
+        if isinstance(detailed, dict) and isinstance(detailed.get("sections"), list) and detailed.get("sections"):
+            meta = detailed.get("meta") or {}
+            report_title = meta.get("report_title") or "KPI Assessment Credit Memo"
+
+            story.append(Paragraph(_escape_html(report_title), title_style))
+            if meta.get("prepared_for"):
+                story.append(Paragraph(f"<b>Prepared for:</b> {_escape_html(meta.get('prepared_for'))}", body_style))
+            if meta.get("as_of_date"):
+                story.append(Paragraph(f"<b>As of:</b> {_escape_html(meta.get('as_of_date'))}", body_style))
+            story.append(Spacer(1, 12))
+
+            inputs = detailed.get("inputs_summary") or {}
+            if inputs:
+                story.append(Paragraph("Inputs Summary", header_style))
+                kpi = inputs.get("kpi") or {}
+                story.append(Paragraph(
+                    f"<b>Company:</b> {_escape_html(inputs.get('company_name'))} &nbsp;&nbsp; "
+                    f"<b>Sector:</b> {_escape_html(inputs.get('industry_sector'))}",
+                    body_style,
+                ))
+                story.append(Paragraph(
+                    f"<b>KPI:</b> {_escape_html(kpi.get('metric'))} &nbsp;&nbsp; "
+                    f"<b>Target:</b> {_escape_html(kpi.get('target_value'))} {_escape_html(kpi.get('target_unit'))} by {_escape_html(kpi.get('target_year'))} &nbsp;&nbsp; "
+                    f"<b>Baseline:</b> {_escape_html(kpi.get('baseline_value'))} {_escape_html(kpi.get('target_unit'))} ({_escape_html(kpi.get('baseline_year'))})",
+                    body_style,
+                ))
+                if kpi.get("emissions_scope"):
+                    story.append(Paragraph(f"<b>Scope:</b> {_escape_html(kpi.get('emissions_scope'))}", body_style))
+                story.append(Spacer(1, 10))
+
+            dq = detailed.get("data_quality") or {}
+            if dq:
+                story.append(Paragraph("Data Quality", header_style))
+                story.append(Paragraph(f"<b>Confidence:</b> {_escape_html(dq.get('confidence'))}", body_style))
+                docs = dq.get("documents_reviewed") or []
+                if docs:
+                    doc_lines = [f"{d.get('document_type')}: {d.get('status')}" for d in docs if isinstance(d, dict)]
+                    _append_bullets(doc_lines)
+                gaps = dq.get("evidence_gaps") or []
+                if gaps:
+                    story.append(Paragraph("<b>Evidence Gaps:</b>", body_style))
+                    _append_bullets([str(g) for g in gaps][:8])
+                story.append(Spacer(1, 10))
+
+            figs = detailed.get("figures") or []
+            if isinstance(figs, list) and figs:
+                story.append(Paragraph("Key Figures", header_style))
+                for fig in figs[:3]:
+                    if not isinstance(fig, dict):
+                        continue
+                    ftype = fig.get("type")
+                    ftitle = fig.get("title") or fig.get("id") or "Figure"
+                    fdata = fig.get("data") or {}
+                    try:
+                        if ftype == "bar":
+                            labels = (fdata.get("labels") or [])
+                            dataset = (fdata.get("dataset") or [])
+                            values = []
+                            if dataset and isinstance(dataset, list) and isinstance(dataset[0], dict):
+                                values = dataset[0].get("data") or []
+                            story.append(_bar_chart(ftitle, labels, values))
+                            story.append(Spacer(1, 8))
+                        elif ftype == "line":
+                            labels = (fdata.get("labels") or [])
+                            values = (fdata.get("data") or [])
+                            story.append(_line_chart(ftitle, labels, values))
+                            story.append(Spacer(1, 8))
+                    except Exception:
+                        continue
+
+                story.append(PageBreak())
+
+            for section in detailed.get("sections"):
+                if not isinstance(section, dict):
+                    continue
+                title = section.get("title") or "Section"
+                story.append(Paragraph(_escape_html(title), header_style))
+
+                markdown = section.get("markdown")
+                if markdown:
+                    story.append(Paragraph(_escape_html(markdown).replace("\n", "<br/>"), body_style))
+
+                bullets = section.get("bullets")
+                if bullets:
+                    _append_bullets([str(b) for b in bullets][:12])
+
+                evidence = section.get("evidence") or []
+                if evidence:
+                    ev_lines = []
+                    for ev in evidence[:3]:
+                        if not isinstance(ev, dict):
+                            continue
+                        src = ev.get("source") or "source"
+                        ref = ev.get("reference") or ""
+                        snip = ev.get("snippet") or ""
+                        ev_lines.append(f"{src}: {ref} — {snip}".strip(" -—"))
+                    if ev_lines:
+                        story.append(Paragraph("Evidence", ParagraphStyle('EvHdr', parent=styles['Heading3'], fontSize=11, textColor=colors.HexColor("#2d7a4a"))))
+                        _append_bullets(ev_lines)
+
+                story.append(Spacer(1, 10))
+
+            # Risk register & terms (if present)
+            rr = detailed.get("risk_register") or []
+            if rr:
+                story.append(PageBreak())
+                story.append(Paragraph("Risk Register", header_style))
+                rr_lines = []
+                for r in rr[:10]:
+                    if not isinstance(r, dict):
+                        continue
+                    rr_lines.append(f"[{r.get('severity','')}] {r.get('theme','')}: {r.get('description','')}")
+                _append_bullets(rr_lines)
+
+            terms = detailed.get("recommended_terms") or {}
+            if terms:
+                story.append(Paragraph("Recommended Terms & Monitoring", header_style))
+                story.append(Paragraph(f"<b>Decision:</b> {_escape_html(terms.get('decision'))}", body_style))
+                if terms.get("conditions"):
+                    story.append(Paragraph("<b>Conditions:</b>", body_style))
+                    _append_bullets([str(c) for c in terms.get("conditions")][:10])
+                if terms.get("monitoring_plan"):
+                    story.append(Paragraph("<b>Monitoring plan:</b>", body_style))
+                    _append_bullets([str(m) for m in terms.get("monitoring_plan")][:10])
+
+            doc.build(story)
+            pdf_bytes = buffer.getvalue()
+            buffer.close()
+
+            if output_path:
+                with open(output_path, "wb") as f:
+                    f.write(pdf_bytes)
+            return pdf_bytes
         
         # Title
         header = report.get("report_header", {})

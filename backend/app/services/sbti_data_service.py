@@ -142,6 +142,34 @@ class SBTiDataService:
                 if candidate in col:
                     return col
         return None
+
+    def _build_scope_mask(self, series: pd.Series, scope: str) -> pd.Series:
+        """Robust scope matching for messy SBTi scope strings.
+
+        Examples:
+        - request "Scope 1+2" matches values containing "1" and "2" but not "3"
+        - request "Scope 1+2+3" matches values containing "1", "2", and "3"
+        - request "Scope 3" matches values containing "3"
+        """
+        scope_str = (scope or "").lower()
+        requested_digits = {ch for ch in scope_str if ch in {"1", "2", "3"}}
+
+        s = series.astype(str).str.lower()
+
+        # If we can't detect digits, fall back to substring match.
+        if not requested_digits:
+            needle = scope_str.replace("+", "").strip()
+            return s.str.contains(needle, na=False)
+
+        mask = pd.Series(True, index=s.index)
+        for d in sorted(requested_digits):
+            mask &= s.str.contains(d, na=False)
+
+        # If requester didn't include scope 3, exclude 1+2+3-type rows.
+        if "3" not in requested_digits:
+            mask &= ~s.str.contains("3", na=False)
+
+        return mask
     
     def check_sbti_commitment(self, company_name: str) -> Dict[str, Any]:
         """
@@ -222,7 +250,18 @@ class SBTiDataService:
         name_col = self._find_column(self.companies_df, ["company_name", "company", "name"])
         
         scope_col = self._find_column(self.targets_df, ["scope", "target_scope"])
-        reduction_col = self._find_column(self.targets_df, ["reduction", "reduction_percentage", "target_percentage"])
+        # SBTi targets file typically uses `target_value` for the reduction percentage.
+        reduction_col = self._find_column(
+            self.targets_df,
+            [
+                "target_value",
+                "target_value_pct",
+                "target_value_percent",
+                "reduction",
+                "reduction_percentage",
+                "target_percentage",
+            ],
+        )
         target_year_col = self._find_column(self.targets_df, ["target_year", "year"])
         company_ref_col = self._find_column(self.targets_df, ["company_name", "company", "organization"])
         
@@ -311,15 +350,15 @@ class SBTiDataService:
             }
         
         if region and region_col:
-            region_filter = sector_matches[sector_col].str.lower().str.contains(region.lower(), na=False)
+            region_filter = sector_matches[region_col].astype(str).str.lower().str.contains(region.lower(), na=False)
             if region_filter.any():
                 sector_matches = sector_matches[region_filter]
         
         # Get company names for cross-referencing
         matched_companies = sector_matches[name_col].str.lower().tolist() if name_col else []
         
-        # Filter targets by scope
-        scope_filter = self.targets_df[scope_col].str.lower().str.contains(scope.lower().replace("+", ""), na=False)
+        # Filter targets by scope (robust matching)
+        scope_filter = self._build_scope_mask(self.targets_df[scope_col], scope)
         target_matches = self.targets_df[scope_filter].copy()
         
         # If we have company references, filter to matched companies
@@ -354,6 +393,12 @@ class SBTiDataService:
             if pd.notna(reduction_val):
                 try:
                     reduction_pct = float(str(reduction_val).replace("%", "").strip())
+
+                    # SBTi `target_value` is commonly stored as a fraction (e.g., 0.42 == 42%).
+                    # Normalize to percent for banker-facing outputs.
+                    if 0 < reduction_pct <= 1.5:
+                        reduction_pct = reduction_pct * 100.0
+
                     peers.append({
                         "company_name": row.get(company_ref_col, "Unknown"),
                         "reduction_percentage": reduction_pct,
@@ -363,20 +408,16 @@ class SBTiDataService:
                 except (ValueError, TypeError):
                     continue
         
-        # CRITICAL VALIDATION: Warn if peer group is too large (indicates overly broad matching)
-        if len(peers) > 100:
-            logger.warning(f"⚠️ PEER GROUP TOO LARGE: {len(peers)} peers found for sector '{sector}' - this is likely too broad!")
-            logger.warning(f"Match strategy used: {match_strategy}")
-            logger.warning(f"Recommend using more specific sector classification (e.g., subsector or NACE/GICS code)")
-            # Keep top 50 peers only (highest reduction targets)
-            peers.sort(key=lambda x: x['reduction_percentage'], reverse=True)
-            peers = peers[:50]
-            logger.warning(f"Trimmed to top 50 most ambitious peers for analysis")
+        # Warn if peer group is very large (can indicate broad sector matching), but do not bias percentiles
+        # by trimming to the most ambitious peers.
+        if len(peers) > 1000:
+            logger.warning(
+                f"⚠️ LARGE PEER GROUP: {len(peers)} peers found for sector '{sector}'. "
+                "Proceeding without trimming to preserve the percentile distribution."
+            )
         
         # Determine match quality based on peer count and strategy
-        if len(peers) > 100:
-            match_quality = "too_broad_trimmed"  # Indicates overly broad match that was trimmed
-        elif len(peers) >= 15 and match_strategy == "exact":
+        if len(peers) >= 15 and match_strategy == "exact":
             match_quality = "exact"
         elif len(peers) >= 8:
             match_quality = "sector_only"
@@ -516,10 +557,11 @@ class SBTiDataService:
         # PRIORITY 2: Try compute_percentiles if no pre-computed data
         if percentiles is None:
             percentile_result = self.compute_percentiles(sector, scope, region)
-            
-            if "error" not in percentile_result and percentile_result.get("peer_count", 0) >= 3:
+
+            computed_peer_count = int((percentile_result.get("percentiles") or {}).get("peer_count") or 0)
+            if "error" not in percentile_result and computed_peer_count >= 3:
                 percentiles = percentile_result["percentiles"]
-                peer_count = percentile_result.get("peer_count", 0)
+                peer_count = computed_peer_count
                 confidence_level = percentile_result.get("confidence_level", "MEDIUM")
                 match_quality = percentile_result.get("match_quality", "computed")
         
