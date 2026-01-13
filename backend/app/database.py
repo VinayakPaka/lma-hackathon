@@ -1,6 +1,7 @@
 """
 GreenGuard ESG Platform - Database Configuration
 """
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import MetaData
@@ -63,40 +64,28 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False
 )
 
+logger = logging.getLogger(__name__)
+
 
 async def get_db() -> AsyncSession:
-    """Dependency that provides an async database session with retry logic."""
-    max_retries = 3
-    retry_delay = 1  # seconds
-    
-    for attempt in range(max_retries):
+    """Dependency that provides an async database session."""
+    async with AsyncSessionLocal() as session:
         try:
-            async with AsyncSessionLocal() as session:
-                try:
-                    yield session
-                    await session.commit()
-                except Exception:
-                    await session.rollback()
-                    raise
-                finally:
-                    await session.close()
-            return  # Success, exit the retry loop
-        except Exception as e:
-            # Check if it's a connection error
-            error_msg = str(e).lower()
-            is_connection_error = any(phrase in error_msg for phrase in [
-                "connection", "timeout", "authentication", "refused", "reset"
-            ])
-            
-            if is_connection_error and attempt < max_retries - 1:
-                import logging
-                import asyncio
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Database connection failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
-                await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                continue
-            else:
-                raise  # Re-raise if not a connection error or max retries exceeded
+            yield session
+        except Exception:
+            # During error unwinding, the underlying connection may already be closed.
+            # Rollback is best-effort; never mask the original exception.
+            try:
+                await session.rollback()
+            except Exception as rollback_error:
+                logger.warning("DB rollback failed during exception handling: %s", rollback_error)
+            raise
+        finally:
+            # Close is also best-effort; don't raise during FastAPI dependency teardown.
+            try:
+                await session.close()
+            except Exception as close_error:
+                logger.warning("DB session close failed during teardown: %s", close_error)
 
 
 async def init_db():

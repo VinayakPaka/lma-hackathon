@@ -35,12 +35,20 @@ reportlab>=4.0.7
 python-dateutil>=2.8.2
 aiofiles>=23.2.1
 
+
 # AI & RAG
 voyageai>=0.3.0
 httpx>=0.25.0
 tiktoken>=0.5.0
 supabase>=2.0.0
+langchain>=0.1.0
+langchain-google-genai>=0.0.5
+langchain-openai>=0.0.5
+langchain-community>=0.0.10
+python-dotenv>=1.0.0
+supermemory
 
 # ESG Data
 yfinance>=0.2.30
+eurostat>=1.0.0
 

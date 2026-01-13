@@ -214,6 +214,8 @@ export const kpiBenchmarkApi = {
     // Run full evaluation with documents
     evaluate: (data: {
         company_name: string;
+        country_code: string;
+        nace_code: string;
         industry_sector: string;
         metric: string;
         target_value: number;
@@ -225,16 +227,16 @@ export const kpiBenchmarkApi = {
         ticker?: string;
         lei?: string;
         region?: string;
-        facility_amount?: string;
-        tenor_years?: number;
         margin_adjustment_bps?: number;
         loan_type?: string;
         documents?: Array<{ document_id: number; document_type: string; is_primary: boolean }>;
-    }) => api.post('/kpi-benchmark/evaluate', data),
+    }) => api.post('/kpi-benchmark/evaluate', data, { timeout: 900000 }), // 15 minute timeout for AI pipeline
 
-    // Get evaluation as PDF
+    // Get evaluation as PDF (runs full evaluation - use for new assessments only)
     evaluatePdf: (data: {
         company_name: string;
+        country_code: string;
+        nace_code: string;
         industry_sector: string;
         metric: string;
         target_value: number;
@@ -245,7 +247,25 @@ export const kpiBenchmarkApi = {
         emissions_scope: string;
         ticker?: string;
         documents?: Array<{ document_id: number; document_type: string; is_primary: boolean }>;
-    }) => api.post('/kpi-benchmark/evaluate/pdf', data, { responseType: 'blob' }),
+    }) => api.post('/kpi-benchmark/evaluate/pdf', data, { responseType: 'blob', timeout: 900000 }), // 15 minute timeout
+
+    // Generate PDF from saved evaluation (does NOT re-run evaluation)
+    getPdfFromSaved: (evaluationId: number) =>
+        api.get(`/kpi-benchmark/history/${evaluationId}/pdf`, { responseType: 'blob' }),
+
+    // Get evaluation history
+    getHistory: (params?: { limit?: number; offset?: number; company_name?: string }) =>
+        api.get('/kpi-benchmark/history', { params }),
+
+    // Get a specific saved evaluation by ID
+    getEvaluationById: (evaluationId: number) =>
+        api.get(`/kpi-benchmark/history/${evaluationId}`),
+
+    // Update banker decision for an evaluation
+    updateDecision: (evaluationId: number, decision: string, overrideReason?: string) =>
+        api.put(`/kpi-benchmark/history/${evaluationId}/decision`, null, {
+            params: { decision, override_reason: overrideReason }
+        }),
 
     // Get executive summary only
     getExecutiveSummary: (data: {

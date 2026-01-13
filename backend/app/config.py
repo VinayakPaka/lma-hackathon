@@ -2,6 +2,8 @@
 GreenGuard ESG Platform - Configuration Settings
 """
 import os
+from typing import Optional
+from pydantic import Field
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -62,11 +64,29 @@ class Settings(BaseSettings):
     
     # Gemini AI Configuration
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+
+    # DeepSeek Configuration (Open Source choice)
+    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+    
+    # Bytez (Fallback 2)
+    BYTEZ_API_KEY: Optional[str] = Field(default="")
+
+    # OpenRouter Configuration (Cloud Open Source)
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    
+    # Ollama Configuration (Local)
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+    # Supermemory Configuration
+    SUPERMEMORY_API_KEY: str = os.getenv("SUPERMEMORY_API_KEY", "")
     
     class Config:
         # Use absolute path to find .env file, regardless of where the app is run from
         env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
         case_sensitive = True
+        extra = "ignore"
 
 
 @lru_cache()
