@@ -1,5 +1,7 @@
 import eurostat
 import logging
+import asyncio
+import concurrent.futures
 from typing import Dict, Any, Optional
 
 class EurostatService:
@@ -8,6 +10,9 @@ class EurostatService:
     When no data is found for a specific NACE code, returns sensible defaults
     so the benchmarking pipeline can continue.
     """
+    
+    # Timeout for Eurostat API calls (10 seconds - fail fast)
+    EUROSTAT_TIMEOUT_SECONDS = 10
     
     # Fallback sector reduction rates when Eurostat has no data
     # Based on typical industry decarbonization benchmarks
@@ -22,18 +27,37 @@ class EurostatService:
     
     def __init__(self):
         # Dataset for Air Emissions Accounts by NACE Rev. 2 activity
-        self.dataset_code = "env_ac_ainah_r2" 
+        self.dataset_code = "env_ac_ainah_r2"
+        # Thread pool for blocking eurostat calls
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        
+    def _fetch_eurostat_sync(self, dataset_code: str):
+        """Synchronous eurostat fetch - runs in thread pool."""
+        return eurostat.get_data_df(dataset_code)
         
     async def get_sector_data(self, nace_code: str, unit: str = "G_HAB") -> Dict[str, Any]:
         """
         Fetch real GHG emissions data for a specific NACE sector.
         Returns fallback defaults if no data is found (graceful degradation).
+        Uses timeout to fail fast and not block the pipeline.
         """
         try:
-            logging.info(f"Fetching Eurostat data for {nace_code}...")
+            logging.info(f"Fetching Eurostat data for {nace_code} (timeout: {self.EUROSTAT_TIMEOUT_SECONDS}s)...")
             
-            # Fetch data frame
-            df = eurostat.get_data_df(self.dataset_code)
+            # Run blocking eurostat call in thread pool with timeout
+            loop = asyncio.get_event_loop()
+            try:
+                df = await asyncio.wait_for(
+                    loop.run_in_executor(self._executor, self._fetch_eurostat_sync, self.dataset_code),
+                    timeout=self.EUROSTAT_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                logging.warning(f"Eurostat API timeout after {self.EUROSTAT_TIMEOUT_SECONDS}s for NACE '{nace_code}'. Using fallback defaults.")
+                return {
+                    "sector": nace_code,
+                    **self.FALLBACK_SECTOR_DEFAULTS,
+                    "error": f"Eurostat API timeout ({self.EUROSTAT_TIMEOUT_SECONDS}s)",
+                }
             
             if df is not None and not df.empty:
                 # Filter locally

@@ -230,7 +230,7 @@ export const kpiBenchmarkApi = {
         margin_adjustment_bps?: number;
         loan_type?: string;
         documents?: Array<{ document_id: number; document_type: string; is_primary: boolean }>;
-    }) => api.post('/kpi-benchmark/evaluate', data, { timeout: 900000 }), // 15 minute timeout for AI pipeline
+    }) => api.post('/kpi-benchmark/evaluate', data, { timeout: 1800000 }), // 30 minute timeout for AI pipeline
 
     // Get evaluation as PDF (runs full evaluation - use for new assessments only)
     evaluatePdf: (data: {
@@ -247,7 +247,7 @@ export const kpiBenchmarkApi = {
         emissions_scope: string;
         ticker?: string;
         documents?: Array<{ document_id: number; document_type: string; is_primary: boolean }>;
-    }) => api.post('/kpi-benchmark/evaluate/pdf', data, { responseType: 'blob', timeout: 900000 }), // 15 minute timeout
+    }) => api.post('/kpi-benchmark/evaluate/pdf', data, { responseType: 'blob', timeout: 1800000 }), // 30 minute timeout
 
     // Generate PDF from saved evaluation (does NOT re-run evaluation)
     getPdfFromSaved: (evaluationId: number) =>
@@ -279,5 +279,17 @@ export const kpiBenchmarkApi = {
         timeline_end_year: number;
         emissions_scope: string;
     }) => api.post('/kpi-benchmark/evaluate/summary', data),
+}
+
+// Report Chat API (report-scoped banker Q&A)
+export const reportChatApi = {
+    createOrGetSession: (evaluationId: number, title?: string) =>
+        api.post('/report-chat/session', { evaluation_id: evaluationId, title }),
+
+    getSessionHistory: (sessionId: number) =>
+        api.get(`/report-chat/session/${sessionId}`),
+
+    sendMessage: (sessionId: number, message: string) =>
+        api.post(`/report-chat/session/${sessionId}/message`, { message }),
 }
 

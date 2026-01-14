@@ -53,10 +53,12 @@ CREATE TABLE IF NOT EXISTS kpi_evaluation_documents (
 -- Store full detailed JSON result to avoid massive columns in main table
 CREATE TABLE IF NOT EXISTS kpi_evaluation_results (
     id SERIAL PRIMARY KEY,
-    evaluation_id INTEGER NOT NULL REFERENCES kpi_evaluations(id) ON DELETE CASCADE,
+    evaluation_id INTEGER NOT NULL UNIQUE REFERENCES kpi_evaluations(id) ON DELETE CASCADE,
     result_json JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS ix_kpi_evaluation_results_evaluation_id ON kpi_evaluation_results(evaluation_id);
 
 -- Audit logs for AI operations
 CREATE TABLE IF NOT EXISTS ai_audit_logs (

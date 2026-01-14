@@ -196,7 +196,7 @@ export default function ReportDetail() {
                     <div className="space-y-2">
                         {(aiAnalysis.red_flags || score.breakdown?.red_flags || []).map((flag: any, i: number) => (
                             <div key={i} className={`p-3 rounded-lg ${flag.severity === 'high' ? 'bg-red-500/10' :
-                                    flag.severity === 'medium' ? 'bg-orange-500/10' : 'bg-yellow-500/10'
+                                flag.severity === 'medium' ? 'bg-orange-500/10' : 'bg-yellow-500/10'
                                 }`}>
                                 <p className="text-sm font-medium">{flag.issue || flag}</p>
                                 {flag.recommendation && (
@@ -249,8 +249,8 @@ export default function ReportDetail() {
                                 {chatHistory.map((msg, i) => (
                                     <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`max-w-[80%] p-3 rounded-lg text-sm ${msg.role === 'user'
-                                                ? 'bg-primary text-primary-foreground'
-                                                : 'bg-muted'
+                                            ? 'bg-primary text-primary-foreground'
+                                            : 'bg-muted'
                                             }`}>
                                             {msg.content}
                                         </div>

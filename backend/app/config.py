@@ -42,16 +42,20 @@ class Settings(BaseSettings):
     TAXONOMY_WEIGHT: float = 0.30
     WASTE_WEIGHT: float = 0.20
     
-    # AI Configuration - Perplexity AI
+    # AI Configuration - Bytez (Primary)
+    BYTEZ_API_KEY: str = os.getenv("BYTEZ_API_KEY", "")
+    BYTEZ_MODEL_OPEN: str = "Qwen/Qwen3-4B-Instruct-2507"
+    BYTEZ_MODEL_CLOSED: str = "openai/gpt-5"
+    
+    # Perplexity AI (Fallback)
     PERPLEXITY_API_KEY: str = os.getenv("PERPLEXITY_API_KEY", "")
-    # Valid models: 'sonar', 'sonar-pro', 'sonar-reasoning' (as of Dec 2024)
     PERPLEXITY_MODEL: str = os.getenv("PERPLEXITY_MODEL", "sonar")
     PERPLEXITY_API_URL: str = "https://api.perplexity.ai/chat/completions"
     
     # Voyage AI for Embeddings
     VOYAGE_API_KEY: str = os.getenv("VOYAGE_API_KEY", "")
     VOYAGE_EMBEDDING_MODEL: str = os.getenv("VOYAGE_EMBEDDING_MODEL", "voyage-3.5")
-    EMBEDDING_DIMENSION: int = 1024  # voyage-3.5 default dimension
+    EMBEDDING_DIMENSION: int = 1024
     
     # Supabase Configuration
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
@@ -62,18 +66,9 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 200
     TOP_K_RETRIEVAL: int = 5
     
-    # Gemini AI Configuration
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-
-    # DeepSeek Configuration (Open Source choice)
-    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
-    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
-    
-    # Bytez (Fallback 2)
-    BYTEZ_API_KEY: Optional[str] = Field(default="")
-
-    # OpenRouter Configuration (Cloud Open Source)
+    # OpenRouter (Secondary Fallback)
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_API_KEY_2: str = os.getenv("OPENROUTER_API_KEY_2", "")
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     
     # Ollama Configuration (Local)

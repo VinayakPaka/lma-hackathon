@@ -407,6 +407,38 @@ Important:
         except Exception as e:
             logger.error(f"Perplexity research call failed: {e}")
             return None
+
+    async def research_nace_code(self, company_name: str, industry: Optional[str] = None) -> Optional[str]:
+        """
+        Research the NACE Rev. 2 code for a company using Perplexity.
+        Used when the NACE code is missing or invalid.
+        """
+        prompt = f"""Research the company "{company_name}" and provide its NACE Rev. 2 code.
+        {"Industry context: " + industry if industry else ""}
+
+        Return valid JSON only in this exact format:
+        {{
+            "company_name": "{company_name}",
+            "nace_code": "The 4 digit NACE Rev. 2 code (e.g. 23.51)",
+            "nace_description": "Description of the NACE code",
+            "confidence": "HIGH|MEDIUM|LOW"
+        }}
+        """
+        try:
+            result = await self._call_perplexity_for_research(prompt)
+            if result and result.get("nace_code"):
+                code = result.get("nace_code")
+                # Normalize logic similar to BenchmarkAgent
+                import re
+                code = str(code).strip()
+                # Ensure it has standard format if possible, but mainly just return the code string
+                # BenchmarkAgent._normalize_nace handles the rest
+                logger.info(f"Perplexity found NACE code for {company_name}: {code}")
+                return code
+        except Exception as e:
+            logger.error(f"Error validating NACE code with Perplexity: {e}")
+        
+        return None
     
     def _find_closest_sector(self, sector: str) -> str:
         """Find closest matching sector from the list."""

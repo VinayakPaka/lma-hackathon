@@ -1,6 +1,7 @@
-﻿import { useEffect, useState } from 'react'
+﻿import { useEffect, useState, useCallback } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { kpiBenchmarkApi, uploadApi } from '@/lib/api'
+import ReactMarkdown from 'react-markdown'
 import {
     Loader2, Target, TrendingUp, FileText, Upload,
     CheckCircle2, XCircle, AlertTriangle, ChevronRight, Download,
@@ -8,10 +9,28 @@ import {
     Sparkles, ArrowRight, FileUp, Trash2, Zap, BarChart3,
     TrendingDown, CheckCircle, AlertCircle, ExternalLink, History, Clock
 } from 'lucide-react'
+import ReportChat from '@/components/ReportChat'
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
     LineChart, Line, RadialBarChart, RadialBar, PolarAngleAxis
 } from 'recharts'
+
+// Helper to read/write URL params for persistence
+const getEvaluationIdFromUrl = (): number | null => {
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('evaluation')
+    return id ? parseInt(id, 10) : null
+}
+
+const setEvaluationIdInUrl = (id: number | null) => {
+    const url = new URL(window.location.href)
+    if (id) {
+        url.searchParams.set('evaluation', id.toString())
+    } else {
+        url.searchParams.delete('evaluation')
+    }
+    window.history.replaceState({}, '', url.toString())
+}
 
 // Types
 interface HistoryItem {
@@ -243,7 +262,10 @@ export default function KPIBenchmarking() {
             console.log('Loaded evaluation response:', response.data)
             if (response.data?.result) {
                 setEvaluationResult(response.data.result)
-                setCurrentEvaluationId(response.data.evaluation?.id || null)
+                const evalId = response.data.evaluation?.id || null
+                setCurrentEvaluationId(evalId)
+                // Persist evaluation ID in URL so it survives page reload
+                setEvaluationIdInUrl(evalId)
                 setShowHistory(false)
                 setStep(3)
             } else {
@@ -254,8 +276,19 @@ export default function KPIBenchmarking() {
         onError: (error: Error) => {
             console.error('Failed to load evaluation:', error)
             setRunError(`Failed to load evaluation: ${error.message}`)
+            // Clear URL param on error
+            setEvaluationIdInUrl(null)
         }
     })
+
+    // Load evaluation from URL on initial mount (handles page reload)
+    useEffect(() => {
+        const evalIdFromUrl = getEvaluationIdFromUrl()
+        if (evalIdFromUrl && !evaluationResult && !loadEvaluationMutation.isPending) {
+            console.log('Loading evaluation from URL:', evalIdFromUrl)
+            loadEvaluationMutation.mutate(evalIdFromUrl)
+        }
+    }, []) // Empty deps - only run on mount
 
     useEffect(() => {
         const firstSectionId = evaluationResult?.detailed_report?.sections?.[0]?.id
@@ -344,6 +377,13 @@ export default function KPIBenchmarking() {
             // Capture evaluation ID for PDF generation without re-running
             if (response.data?.evaluation_id) {
                 setCurrentEvaluationId(response.data.evaluation_id)
+                // Persist in URL so page reload works
+                setEvaluationIdInUrl(response.data.evaluation_id)
+            }
+            // Check if save failed (backend still returns result but with save_error)
+            if (response.data?.save_error) {
+                console.warn('Evaluation completed but failed to save:', response.data.save_error)
+                setRunError(`Warning: Report generated but may not persist. Error: ${response.data.save_error}`)
             }
             setIsAnalyzing(false)
             setStep(3)
@@ -422,8 +462,21 @@ export default function KPIBenchmarking() {
     const startAnalysis = () => {
         setRunError(null)
         setIsAnalyzing(true)
+        // Clear any old evaluation from URL before starting new one
+        setEvaluationIdInUrl(null)
         evaluateMutation.mutate()
     }
+
+    // Reset to start a new assessment
+    const startNewAssessment = useCallback(() => {
+        setStep(1)
+        setEvaluationResult(null)
+        setCurrentEvaluationId(null)
+        setEvaluationIdInUrl(null)
+        setRunError(null)
+        setUploadedDocs([])
+        setShowHistory(false)
+    }, [])
 
     const canProceed =
         formData.company_name &&
@@ -434,6 +487,19 @@ export default function KPIBenchmarking() {
         formData.target_emissions &&
         formData.baseline_value &&
         formData.timeline_end_year >= 2025
+
+    // Show loading state when loading evaluation from URL
+    if (loadEvaluationMutation.isPending) {
+        return (
+            <div className="min-h-screen bg-[#0a0f1a] text-white flex items-center justify-center">
+                <div className="text-center">
+                    <Loader2 className="w-12 h-12 text-emerald-400 animate-spin mx-auto mb-4" />
+                    <h2 className="text-xl font-semibold mb-2">Loading Evaluation</h2>
+                    <p className="text-gray-400">Please wait while we retrieve your saved report...</p>
+                </div>
+            </div>
+        )
+    }
 
     // History View
     if (showHistory) {
@@ -446,7 +512,7 @@ export default function KPIBenchmarking() {
 
                 <div className="relative z-10 max-w-5xl mx-auto px-6 py-12">
                     {/* Back Button */}
-                    <button onClick={() => setShowHistory(false)} className="flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors">
+                    <button onClick={startNewAssessment} className="flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors">
                         <ChevronRight className="w-5 h-5 rotate-180" />
                         Back to New Assessment
                     </button>
@@ -480,11 +546,11 @@ export default function KPIBenchmarking() {
                                 const isApproved = item.banker_decision === 'APPROVE' || item.banker_decision === 'CONDITIONAL_APPROVAL'
                                 const gradeColor = item.assessment_grade === 'AMBITIOUS' ? 'text-green-400' :
                                     item.assessment_grade === 'MODERATE' ? 'text-amber-400' : 'text-red-400'
-                                const decisionColor = isApproved ? 'bg-green-500/20 text-green-400' : 
+                                const decisionColor = isApproved ? 'bg-green-500/20 text-green-400' :
                                     item.banker_decision === 'REJECT' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'
-                                
+
                                 return (
-                                    <div 
+                                    <div
                                         key={item.id}
                                         className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6 hover:border-purple-500/30 transition-colors cursor-pointer"
                                         onClick={() => loadEvaluationMutation.mutate(item.id)}
@@ -955,6 +1021,15 @@ export default function KPIBenchmarking() {
         const recommendation = result.final_decision?.recommendation || result.executive_summary.overall_recommendation
         const isApproved = recommendation === 'APPROVE' || recommendation === 'CONDITIONAL_APPROVAL'
 
+        // Get target ambition from various possible sources
+        const targetAmbition = result.target_assessment?.ambition_classification
+            || result.peer_benchmark?.ambition_level
+            || result.executive_summary?.ambition_level
+            || (result.peer_benchmark?.company_percentile >= 75 ? 'HIGHLY_AMBITIOUS'
+                : result.peer_benchmark?.company_percentile >= 50 ? 'AMBITIOUS'
+                    : result.peer_benchmark?.company_percentile >= 25 ? 'MARKET_ALIGNED'
+                        : 'BELOW_MARKET')
+
         const getRecommendationStyle = () => {
             switch (recommendation) {
                 case 'APPROVE': return { bg: 'from-green-500 to-emerald-500', text: 'text-green-400', icon: CheckCircle2 }
@@ -963,8 +1038,24 @@ export default function KPIBenchmarking() {
                 default: return { bg: 'from-gray-500 to-gray-600', text: 'text-gray-400', icon: AlertTriangle }
             }
         }
+
+        const getAmbitionStyle = () => {
+            const ambition = targetAmbition?.toUpperCase()?.replace(/[_\s]/g, '_')
+            if (ambition?.includes('HIGHLY') || ambition?.includes('SCIENCE')) {
+                return { bg: 'from-emerald-600 to-teal-600', text: 'text-emerald-400', icon: Award }
+            } else if (ambition?.includes('AMBITIOUS') || ambition?.includes('ABOVE')) {
+                return { bg: 'from-blue-500 to-cyan-500', text: 'text-blue-400', icon: TrendingUp }
+            } else if (ambition?.includes('MARKET') || ambition?.includes('ALIGNED')) {
+                return { bg: 'from-amber-500 to-orange-500', text: 'text-amber-400', icon: Target }
+            } else {
+                return { bg: 'from-red-500 to-rose-500', text: 'text-red-400', icon: TrendingDown }
+            }
+        }
+
         const recStyle = getRecommendationStyle()
         const RecIcon = recStyle.icon
+        const ambitionStyle = getAmbitionStyle()
+        const AmbitionIcon = ambitionStyle.icon
 
         const fallbackCompanyPct = Number.isFinite(computedReductionPct) ? computedReductionPct : 5
         const peerChartData = (result.visuals?.peer_comparison?.labels || ['Company', 'Median', 'Top 25%']).map((label, i) => ({
@@ -1008,24 +1099,57 @@ export default function KPIBenchmarking() {
                         </button>
                     </div>
 
-                    {/* Recommendation Hero */}
-                    <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-r ${recStyle.bg} p-8 mb-8`}>
-                        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-                        <div className="relative z-10 flex items-center justify-between">
-                            <div className="flex items-center gap-6">
-                                <div className="p-4 bg-white/20 rounded-2xl backdrop-blur">
-                                    <RecIcon className="w-10 h-10 text-white" />
+                    {/* Recommendation Hero - Two Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                        {/* Credit Recommendation Card */}
+                        <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${recStyle.bg} p-6`}>
+                            <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                            <div className="relative z-10">
+                                <div className="flex items-center gap-4 mb-3">
+                                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur">
+                                        <RecIcon className="w-8 h-8 text-white" />
+                                    </div>
+                                    <div>
+                                        <p className="text-white/80 text-xs font-medium uppercase tracking-wider mb-1">Credit Recommendation</p>
+                                        <p className="text-2xl font-bold text-white">
+                                            {recommendation?.replace(/_/g, ' ') || 'UNDER REVIEW'}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-white/80 text-sm font-medium mb-1">Credit Recommendation</p>
-                                    <p className="text-3xl font-bold text-white">
-                                        {recommendation?.replace(/_/g, ' ') || 'UNDER REVIEW'}
-                                    </p>
+                                <div className="mt-3 pt-3 border-t border-white/20">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-white/70 text-sm">Confidence Level</span>
+                                        <span className="text-white font-semibold">{result.final_decision?.confidence || 'MEDIUM'}</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <p className="text-white/80 text-sm mb-1">Confidence Level</p>
-                                <p className="text-2xl font-bold text-white">{result.final_decision?.confidence || 'MEDIUM'}</p>
+                        </div>
+
+                        {/* Target Ambition Card */}
+                        <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${ambitionStyle.bg} p-6`}>
+                            <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                            <div className="relative z-10">
+                                <div className="flex items-center gap-4 mb-3">
+                                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur">
+                                        <AmbitionIcon className="w-8 h-8 text-white" />
+                                    </div>
+                                    <div>
+                                        <p className="text-white/80 text-xs font-medium uppercase tracking-wider mb-1">Target Ambition</p>
+                                        <p className="text-2xl font-bold text-white">
+                                            {targetAmbition?.replace(/_/g, ' ') || 'ASSESSING'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="mt-3 pt-3 border-t border-white/20">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-white/70 text-sm">Peer Percentile</span>
+                                        <span className="text-white font-semibold">
+                                            {result.peer_benchmark?.company_percentile
+                                                ? `${Math.round(result.peer_benchmark.company_percentile)}th`
+                                                : 'N/A'}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1035,9 +1159,11 @@ export default function KPIBenchmarking() {
                         <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6 mb-8">
                             <div className="flex items-center gap-3 mb-4">
                                 <Sparkles className="w-5 h-5 text-purple-400" />
-                                <h2 className="text-lg font-semibold">AI Executive Summary</h2>
+                                <h2 className="text-lg font-semibold">Detailed Assessment Report</h2>
                             </div>
-                            <p className="text-gray-300 leading-relaxed">{result.executive_summary.ai_narrative}</p>
+                            <div className="text-gray-300 leading-relaxed prose prose-invert prose-sm max-w-none">
+                                <ReactMarkdown>{result.executive_summary.ai_narrative}</ReactMarkdown>
+                            </div>
                         </div>
                     )}
 
@@ -1061,6 +1187,13 @@ export default function KPIBenchmarking() {
                             <div className="ml-auto text-xs text-gray-500">
                                 {memo.meta?.prepared_for ? `${memo.meta.prepared_for} • ` : ''}{memo.meta?.as_of_date || result.report_header.analysis_date}
                             </div>
+                        </div>
+                    )}
+
+                    {/* Report Q&A Chat */}
+                    {currentEvaluationId && (
+                        <div className="mb-8">
+                            <ReportChat evaluationId={currentEvaluationId} />
                         </div>
                     )}
 
@@ -1119,7 +1252,9 @@ export default function KPIBenchmarking() {
                                     <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
                                         <h2 className="text-xl font-semibold mb-3">{activeSection.title}</h2>
                                         {activeSection.markdown && (
-                                            <p className="text-gray-300 whitespace-pre-wrap leading-relaxed mb-4">{activeSection.markdown}</p>
+                                            <div className="text-gray-300 leading-relaxed mb-4 prose prose-invert prose-sm max-w-none prose-headings:text-white prose-headings:font-semibold prose-h3:text-base prose-strong:text-white prose-p:my-2">
+                                                <ReactMarkdown>{activeSection.markdown}</ReactMarkdown>
+                                            </div>
                                         )}
                                         {(activeSection.bullets || []).length > 0 && (
                                             <ul className="space-y-2 text-sm text-gray-300">
@@ -1298,7 +1433,7 @@ export default function KPIBenchmarking() {
                                         Regulatory Compliance
                                     </h3>
                                     <div className="grid grid-cols-2 gap-4">
-                                        {Object.entries(result.regulatory_compliance?.summary || { eu_taxonomy: false, csrd: true, sbti: true, sllp: true }).map(([key, value]) => (
+                                        {Object.entries(result.regulatory_compliance?.summary || { eu_taxonomy: false, sbti: true, sllp: true }).map(([key, value]) => (
                                             <div key={key} className={`p-4 rounded-xl ${value ? 'bg-green-500/10 border border-green-500/20' : 'bg-gray-800/50 border border-gray-700'}`}>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <span className="text-sm font-medium text-gray-300 uppercase">{key.replace(/_/g, ' ')}</span>
@@ -1374,7 +1509,7 @@ export default function KPIBenchmarking() {
                     {/* Action Buttons */}
                     <div className="flex items-center justify-between pt-6 border-t border-gray-800">
                         <button
-                            onClick={() => { setStep(1); setEvaluationResult(null); setUploadedDocs([]); setCurrentEvaluationId(null) }}
+                            onClick={startNewAssessment}
                             className="px-6 py-3 text-gray-400 hover:text-white transition-colors"
                         >
                             Start New Assessment

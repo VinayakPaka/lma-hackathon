@@ -2,7 +2,7 @@
 GreenGuard ESG Platform - KPI and Green Vendor Models
 """
 from datetime import datetime
-from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, Text
+from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, Text, UniqueConstraint
 from app.database import Base
 
 
@@ -97,8 +97,8 @@ class KPIEvaluationResult(Base):
     __tablename__ = "kpi_evaluation_results"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    evaluation_id = Column(Integer, index=True)
-    result_json = Column(String) # Stored as JSON string in SQLite/Postgres hybrid compat
+    evaluation_id = Column(Integer, index=True, unique=True, nullable=False)  # One result per evaluation
+    result_json = Column(Text, nullable=False)  # Use Text for large JSON (no size limit)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -76,11 +76,26 @@ class OrchestratorAgent(BaseAgent):
         from app.agents.tier1.achievement_tracker import AchievementTrackerAgent
         from app.agents.tier1.completeness_analyzer import CompletenessAnalyzerAgent
         
-        # We can run these in parallel or sequence
-        await ChartUnderstandingAgent("Agent2_Chart", self.company_id, self.memory_store).process_visuals("docs")
-        await BaselineVerificationAgent("Agent3_Verifier", self.company_id, self.memory_store).verify_baseline()
-        await AchievementTrackerAgent("Agent4_Tracker", self.company_id, self.memory_store).track_history()
-        await CompletenessAnalyzerAgent("Agent5_Completeness", self.company_id, self.memory_store).analyze_completeness()
+        # Run Tier 1 agents with error handling - don't let one failure crash the whole pipeline
+        try:
+            await ChartUnderstandingAgent("Agent2_Chart", self.company_id, self.memory_store).process_visuals("docs")
+        except Exception as e:
+            logging.warning(f"ChartUnderstandingAgent failed (non-critical): {e}")
+        
+        try:
+            await BaselineVerificationAgent("Agent3_Verifier", self.company_id, self.memory_store).verify_baseline()
+        except Exception as e:
+            logging.warning(f"BaselineVerificationAgent failed (non-critical): {e}")
+        
+        try:
+            await AchievementTrackerAgent("Agent4_Tracker", self.company_id, self.memory_store).track_history()
+        except Exception as e:
+            logging.warning(f"AchievementTrackerAgent failed (non-critical): {e}")
+        
+        try:
+            await CompletenessAnalyzerAgent("Agent5_Completeness", self.company_id, self.memory_store).analyze_completeness()
+        except Exception as e:
+            logging.warning(f"CompletenessAnalyzerAgent failed (non-critical): {e}")
 
         # --- PHASE 2: DATA EXTRACTION (Agents 6-8) ---
         logging.info("--- Phase 2: Data Extraction ---")
@@ -88,32 +103,69 @@ class OrchestratorAgent(BaseAgent):
         from app.agents.tier2.governance_extractor import GovernanceExtractorAgent
         from app.agents.tier2.capex_extractor import CapexExtractorAgent
 
-        await KPIExtractorAgent("Agent6_KPI", self.company_id, self.memory_store).extract_kpi_details()
-        await GovernanceExtractorAgent("Agent7_Gov", self.company_id, self.memory_store).extract_governance()
-        await CapexExtractorAgent("Agent8_Capex", self.company_id, self.memory_store).extract_capex()
+        try:
+            await KPIExtractorAgent("Agent6_KPI", self.company_id, self.memory_store).extract_kpi_details()
+        except Exception as e:
+            logging.warning(f"KPIExtractorAgent failed (non-critical): {e}")
+        
+        try:
+            await GovernanceExtractorAgent("Agent7_Gov", self.company_id, self.memory_store).extract_governance()
+        except Exception as e:
+            logging.warning(f"GovernanceExtractorAgent failed (non-critical): {e}")
+        
+        try:
+            await CapexExtractorAgent("Agent8_Capex", self.company_id, self.memory_store).extract_capex()
+        except Exception as e:
+            logging.warning(f"CapexExtractorAgent failed (non-critical): {e}")
 
         # --- PHASE 3: BENCHMARKING & REGULATORY (Agents 9-12) ---
         logging.info("--- Phase 3: Benchmarking & Regulatory ---")
         # Agent 9
-        benchmark_results = await self.bencher.run_benchmark()
+        benchmark_results = {}
+        try:
+            benchmark_results = await self.bencher.run_benchmark()
+        except Exception as e:
+            logging.warning(f"Benchmark agent failed (non-critical): {e}")
         
         from app.agents.tier3.regulatory_agents import RegulatoryAnalysisAgent
         reg_agent = RegulatoryAnalysisAgent("RegulatoryAgent", self.company_id, self.memory_store)
         
-        reg_results = {
-            "eu_taxonomy": await reg_agent.check_eu_taxonomy(), # Agent 10
-            "csrd": await reg_agent.check_csrd_compliance(), # Agent 11
-            "sbti": await reg_agent.check_sbti_validation() # Agent 12
-        }
+        reg_results = {"eu_taxonomy": {}, "sbti": {}}
+        try:
+            reg_results["eu_taxonomy"] = await reg_agent.check_eu_taxonomy() # Agent 10
+        except Exception as e:
+            logging.warning(f"EU Taxonomy check failed (non-critical): {e}")
+        
+        # CSRD compliance check removed per user request
+        
+        try:
+            reg_results["sbti"] = await reg_agent.check_sbti_validation() # Agent 12
+        except Exception as e:
+            logging.warning(f"SBTi validation check failed (non-critical): {e}")
 
         # --- PHASE 4: ANALYSIS & SYNTHESIS (Agents 13-16) ---
         logging.info("--- Phase 4: Analysis & Synthesis ---")
         from app.agents.tier4.analysis_agents import AnalysisAgents
         analyzer = AnalysisAgents("AnalysisBrain", self.company_id, self.memory_store)
         
-        achievability = await analyzer.assess_achievability() # Agent 13
-        synthesis = await analyzer.synthesize_evidence() # Agent 14
-        visuals = await analyzer.generate_visual_json() # Agent 15/16
+        achievability = {}
+        try:
+            achievability = await analyzer.assess_achievability() # Agent 13
+        except Exception as e:
+            logging.warning(f"Achievability assessment failed (non-critical): {e}")
+            achievability = {"score": 50, "reasoning": "Assessment failed - manual review recommended"}
+        
+        synthesis = {}
+        try:
+            synthesis = await analyzer.synthesize_evidence() # Agent 14
+        except Exception as e:
+            logging.warning(f"Evidence synthesis failed (non-critical): {e}")
+        
+        visuals = {}
+        try:
+            visuals = await analyzer.generate_visual_json() # Agent 15/16
+        except Exception as e:
+            logging.warning(f"Visual generation failed (non-critical): {e}")
         
         # Credit memo can take a long time - wrap in try/catch
         try:

@@ -9,7 +9,6 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.user import User
 from app.schemas.user_schema import UserCreate, UserLogin, TokenRefresh, PasswordChange, UserResponse, TokenResponse, MessageResponse
-from app.utils.hashing import hash_password, verify_password
 from app.utils.jwt_handler import create_access_token, create_refresh_token, decode_token, get_current_user
 from app.config import settings
 
@@ -26,7 +25,7 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     new_user = User(
         name=user_data.name,
         email=user_data.email,
-        hashed_password=hash_password(user_data.password),
+        password=user_data.password,
         role=user_data.role
     )
     db.add(new_user)
@@ -49,7 +48,7 @@ async def login(credentials: UserLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == credentials.email))
     user = result.scalar_one_or_none()
     
-    if not user or not verify_password(credentials.password, user.hashed_password):
+    if not user or credentials.password != user.password:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     
     logger.info(f"User logged in: {user.email}")
@@ -94,13 +93,13 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    if not verify_password(password_data.current_password, current_user.hashed_password):
+    if password_data.current_password != current_user.password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect"
         )
     
-    current_user.hashed_password = hash_password(password_data.new_password)
+    current_user.password = password_data.new_password
     await db.commit()
     
     logger.info(f"Password changed for user: {current_user.email}")
