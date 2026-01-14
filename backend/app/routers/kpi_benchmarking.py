@@ -32,6 +32,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/kpi-benchmark", tags=["KPI Benchmarking"])
 
 
+def _get_ambition_label(ambition_level: str) -> str:
+    """Convert ambition level code to human-readable label."""
+    labels = {
+        "HIGHLY_AMBITIOUS": "Highly Ambitious",
+        "SCIENCE_ALIGNED": "Science-Aligned (1.5°C)",
+        "ABOVE_MARKET": "Above Market",
+        "AMBITIOUS": "Ambitious",
+        "MARKET_ALIGNED": "Market-Aligned",
+        "MARKET_STANDARD": "Market Standard",
+        "BELOW_MARKET": "Below Market",
+        "WEAK": "Below Expectations",
+    }
+    return labels.get(ambition_level, ambition_level.replace("_", " ").title())
+
+
 def _build_detailed_report(request: "KPIBenchmarkRequest", response: dict) -> dict:
     """Deterministic, bank-style report payload for UI rendering.
 
@@ -326,6 +341,8 @@ async def _save_evaluation_to_db(
     # Generate a unique loan reference
     loan_ref = f"LR-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
     
+    logger.info(f"Saving evaluation for {request.company_name} with loan ref {loan_ref}")
+    
     # Create evaluation record
     evaluation = KPIEvaluation(
         loan_reference_id=loan_ref,
@@ -349,11 +366,21 @@ async def _save_evaluation_to_db(
     
     db.add(evaluation)
     await db.flush()  # Get the ID
+    logger.info(f"Created evaluation record with ID: {evaluation.id}")
+    
+    # Serialize result to JSON - ensure it's valid
+    try:
+        result_json_str = json.dumps(result, default=str, ensure_ascii=False)
+        json_size_kb = len(result_json_str) / 1024
+        logger.info(f"Result JSON size: {json_size_kb:.2f} KB")
+    except Exception as json_err:
+        logger.error(f"Failed to serialize result JSON: {json_err}")
+        raise ValueError(f"Result serialization failed: {json_err}")
     
     # Create result record with full JSON
     eval_result = KPIEvaluationResult(
         evaluation_id=evaluation.id,
-        result_json=json.dumps(result, default=str),
+        result_json=result_json_str,
     )
     db.add(eval_result)
     
@@ -366,6 +393,7 @@ async def _save_evaluation_to_db(
         db.add(doc_link)
     
     await db.commit()
+    logger.info(f"Successfully saved evaluation {evaluation.id} to database")
     return evaluation.id
 
 
@@ -433,6 +461,8 @@ async def get_evaluation_by_id(
     Returns the complete evaluation result that was previously generated.
     """
     try:
+        logger.info(f"Loading evaluation {evaluation_id} from database")
+        
         # Get evaluation
         eval_result = await db.execute(
             select(KPIEvaluation).where(KPIEvaluation.id == evaluation_id)
@@ -440,7 +470,10 @@ async def get_evaluation_by_id(
         evaluation = eval_result.scalar_one_or_none()
         
         if not evaluation:
+            logger.warning(f"Evaluation {evaluation_id} not found")
             raise HTTPException(status_code=404, detail="Evaluation not found")
+        
+        logger.info(f"Found evaluation for {evaluation.company_name}")
         
         # Get full result JSON
         result_query = await db.execute(
@@ -452,8 +485,12 @@ async def get_evaluation_by_id(
         if result_record and result_record.result_json:
             try:
                 full_result = json.loads(result_record.result_json)
-            except json.JSONDecodeError:
+                logger.info(f"Successfully parsed result JSON for evaluation {evaluation_id}")
+            except json.JSONDecodeError as json_err:
+                logger.error(f"Failed to parse result JSON for evaluation {evaluation_id}: {json_err}")
                 full_result = None
+        else:
+            logger.warning(f"No result_json found for evaluation {evaluation_id}")
         
         return {
             "evaluation": {
@@ -1049,6 +1086,11 @@ async def run_full_evaluation(
                     conditions.append(cond)
         
         # Merge/Map to expected structure
+        # Extract ambition classification for target_assessment
+        ambition_class = peer_benchmarking.get("ambition_classification", {})
+        ambition_level = ambition_class.get("level", "MARKET_ALIGNED")
+        company_pct = peer_benchmarking.get("company_position", {}).get("percentile") or ambition_result.get("percentile_rank")
+        
         final_response = {
             "report_header": {
                 "company_name": request.company_name,
@@ -1062,7 +1104,24 @@ async def run_full_evaluation(
                 "recommendation_rationale": desc.get("recommendation_rationale", f"Based on comprehensive ESG assessment of {request.company_name}'s sustainability targets and credibility signals."),
                 "key_findings": key_findings,
                 "conditions_for_approval": [c if isinstance(c, str) else c.get("condition", "") for c in conditions] if conditions else [],
-                "ai_narrative": achievability_data.get("reasoning") or achievability_data.get("evidence") or desc.get("recommendation_rationale") or f"The assessment of {request.company_name}'s sustainability-linked loan application has been completed. The company demonstrates commitment to emissions reduction with a target of {request.target_value}% by {request.timeline_end_year}."
+                "ai_narrative": achievability_data.get("reasoning") or achievability_data.get("evidence") or desc.get("recommendation_rationale") or f"The assessment of {request.company_name}'s sustainability-linked loan application has been completed. The company demonstrates commitment to emissions reduction with a target of {request.target_value}% by {request.timeline_end_year}.",
+                "ambition_level": ambition_level
+            },
+            "target_assessment": {
+                "ambition_classification": ambition_level,
+                "ambition_label": _get_ambition_label(ambition_level),
+                "peer_percentile": company_pct,
+                "comparison_to_median": peer_benchmarking.get("peer_statistics", {}).get("median"),
+                "comparison_to_p75": peer_benchmarking.get("peer_statistics", {}).get("p75"),
+                "is_science_aligned": ambition_level in ["HIGHLY_AMBITIOUS", "SCIENCE_ALIGNED", "ABOVE_MARKET"],
+                "rationale": ambition_class.get("rationale") or ambition_class.get("classification_explanation") or f"Target of {request.target_value}% reduction places the company at the {company_pct}th percentile among sector peers."
+            },
+            "peer_benchmark": {
+                "company_percentile": company_pct,
+                "peer_count": peer_benchmarking.get("peer_statistics", {}).get("peer_count"),
+                "median": peer_benchmarking.get("peer_statistics", {}).get("median"),
+                "p75": peer_benchmarking.get("peer_statistics", {}).get("p75"),
+                "ambition_level": ambition_level
             },
             "peer_benchmarking": peer_benchmarking,
             "achievability_assessment": {
@@ -1129,15 +1188,18 @@ async def run_full_evaluation(
 
         # Save evaluation to database for history
         # Use a FRESH database session since the original may have timed out during long pipeline
+        evaluation_id = None
         try:
             from app.database import AsyncSessionLocal
             async with AsyncSessionLocal() as fresh_db:
                 evaluation_id = await _save_evaluation_to_db(fresh_db, request, final_response, doc_ids)
                 final_response["evaluation_id"] = evaluation_id
-                logger.info(f"Saved evaluation {evaluation_id} to database")
+                logger.info(f"Saved evaluation {evaluation_id} to database for {request.company_name}")
         except Exception as save_error:
-            logger.error(f"Failed to save evaluation to database: {save_error}")
-            # Continue without failing - evaluation still returns
+            logger.error(f"CRITICAL: Failed to save evaluation to database: {save_error}", exc_info=True)
+            # Add error flag to response so frontend knows save failed
+            final_response["save_error"] = str(save_error)
+            final_response["evaluation_id"] = None
 
         logger.info(f"Completed Agentic KPI evaluation for {request.company_name}")
         return final_response

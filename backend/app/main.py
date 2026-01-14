@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.routers import auth, file_upload, esg_extract, ai_esg_extract, compliance, kpi_benchmark, use_of_proceeds, kpi_evaluation, kpi_benchmarking
+from app.routers import auth, file_upload, esg_extract, ai_esg_extract, compliance, kpi_benchmark, use_of_proceeds, kpi_evaluation, kpi_benchmarking, report_chat
 
 
 
@@ -30,6 +30,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     logger.info("Starting GreenGuard ESG Platform...")
+    
+    # Reset provider exhaustion flags on startup (in case API keys were changed)
+    try:
+        from app.agents.base_agent import reset_provider_flags
+        reset_provider_flags()
+        logger.info("Provider exhaustion flags reset for fresh API key state")
+    except Exception as e:
+        logger.warning(f"Could not reset provider flags: {e}")
     
     # Check configuration
     from app.middleware.config_check import check_configuration
@@ -107,6 +115,7 @@ app.include_router(kpi_benchmark.router, prefix="/kpi", tags=["KPI Benchmarking"
 app.include_router(use_of_proceeds.router, prefix="/use-of-proceeds", tags=["Use of Proceeds"])
 app.include_router(kpi_evaluation.router, prefix="/kpi", tags=["KPI Evaluation"])
 app.include_router(kpi_benchmarking.router)  # KPI Benchmarking Engine (uses /kpi-benchmark prefix)
+app.include_router(report_chat.router)
 
 
 @app.get("/", tags=["Health"])

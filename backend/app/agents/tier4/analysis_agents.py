@@ -3,6 +3,7 @@ import logging
 import asyncio
 import os
 import json
+import concurrent.futures
 from datetime import datetime
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -86,6 +87,59 @@ class AnalysisAgents(BaseAgent):
     Tier 4: Analysis & Synthesis.
     Proprietary risk modeling and report synthesis.
     """
+    
+    def _create_fallback_memo(self, error_msg: str) -> dict:
+        """Create a fallback credit memo when AI generation fails."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        return {
+            "meta": {
+                "report_title": "KPI Assessment Credit Memo",
+                "prepared_for": "Credit Committee",
+                "prepared_by": "GreenGuard ESG Analyst (Fallback Mode)",
+                "as_of_date": today,
+                "version": "1.0",
+                "models_used": ["Fallback"],
+                "error": error_msg
+            },
+            "inputs_summary": {
+                "company_name": "Unknown",
+                "industry_sector": "Unknown",
+                "loan_type": "Sustainability-Linked Loan",
+                "facility_amount": "Not specified",
+                "tenor_years": 0,
+                "kpi": {
+                    "metric": "GHG Emissions Reduction",
+                    "target_value": 0,
+                    "target_unit": "%",
+                    "baseline_value": 0,
+                    "baseline_year": 0,
+                    "target_year": 0,
+                    "emissions_scope": "Unknown"
+                }
+            },
+            "data_quality": {
+                "documents_reviewed": [],
+                "evidence_gaps": ["AI generation failed - manual review required"],
+                "confidence": "LOW"
+            },
+            "sections": [
+                {
+                    "id": "executive_summary",
+                    "title": "Executive Summary",
+                    "markdown": f"### Generation Error\n\nThe credit memo could not be generated automatically due to: {error_msg}.\n\nPlease review the raw data and individual agent outputs for the assessment.",
+                    "bullets": ["AI generation failed", "Manual review required", f"Error: {error_msg}"],
+                    "evidence": []
+                }
+            ],
+            "figures": [],
+            "risk_register": [],
+            "recommended_terms": {
+                "decision": "MANUAL_REVIEW",
+                "conditions": ["Complete manual assessment required"],
+                "monitoring_plan": ["TBD after manual review"],
+                "covenants": ["TBD after manual review"]
+            }
+        }
     
     async def assess_achievability(self):
         logging.info(f"{self.name}: Assessing Achievability & Risk.")
@@ -208,11 +262,17 @@ NARRATIVE STRUCTURE:
    - Key conditions for approval
    - Rationale for decision
 
+6. **STYLE GUIDELINES:**
+   - Tone: Professional, objective, "Investment Banking Credit Memo" style.
+   - Formatting: STRICTLY split the output into 2-3 distinct paragraphs. Do NOT produce one giant wall of text.
+   - Avoid flowery language; be direct and data-driven.
+
 HARD RULES:
 - Do not fabricate citations - use [PAGE N] only if page references exist in memory
 - If page/section references are unavailable, cite the source type (e.g., "banker_input", "benchmark", "spo_document")
 - Include SPECIFIC NUMBERS: percentages, peer counts, emission values where available
 - Be balanced - highlight both strengths and concerns
+- **CRITICAL**: Ensure the `narrative` field contains line breaks (`\n\n`) between paragraphs.
 
 Return STRICT JSON only:
 {
@@ -283,50 +343,12 @@ Return STRICT JSON only:
 
     async def draft_credit_memo(self):
         """
-        Generate a bank-grade, structured credit memo using DISTRIBUTED MULTI-MODEL approach.
-        
-        Strategy:
-        - Model 1 (Qwen 72B): Executive Summary, Recommendation, Risk Register (strategic sections)
-        - Model 2 (Gemini 1.5 Flash): Benchmarking, Track Record, KPI Definition (analytical sections)  
-        - Model 3 (Llama 3.3 70B): Documents, Extracted Data, Credibility Signals (data sections)
-        
-        All run in PARALLEL for speed, then aggregated into final memo.
+        Generate a credit memo using the base agent's robust fallback chain.
+        Executes sections in parallel using the configured unified LLM logic.
         """
-        logging.info(f"{self.name}: Starting DISTRIBUTED Credit Memo Generation (3 Models in Parallel)")
+        logging.info(f"{self.name}: Starting Credit Memo Generation via Unified LLM Logic")
         
-        from app.config import settings
-        
-        # Initialize the three LLMs
-        openrouter_key = os.getenv("OPENROUTER_API_KEY") or settings.OPENROUTER_API_KEY
-        gemini_key = os.getenv("GOOGLE_API_KEY") or settings.GEMINI_API_KEY
-        
-        # Model 1: Qwen 72B (Strategic/Reasoning) via OpenRouter
-        model_qwen = ChatOpenAI(
-            model="qwen/qwen-2.5-72b-instruct",
-            api_key=openrouter_key,
-            base_url=settings.OPENROUTER_BASE_URL,
-            temperature=0,
-            max_tokens=8000
-        ) if openrouter_key else None
-        
-        # Model 2: Gemini 1.5 Flash (Fast/Analytical) - better free tier limits
-        model_gemini = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",  # Use 1.5 Flash instead of 2.0-flash-exp for better quota
-            google_api_key=gemini_key,
-            temperature=0,
-            convert_system_message_to_human=True
-        ) if gemini_key else None
-        
-        # Model 3: Llama 3.3 70B via OpenRouter (instead of Kimi which has privacy restrictions)
-        model_llama = ChatOpenAI(
-            model="meta-llama/llama-3.3-70b-instruct",  # Reliable OpenRouter model
-            api_key=openrouter_key,
-            base_url=settings.OPENROUTER_BASE_URL,
-            temperature=0,
-            max_tokens=8000
-        ) if openrouter_key else None
-        
-        # Gather memory context for all models
+        # Gather memory context
         memory_context = ""
         for category in ["banker_input", "target", "benchmark", "regulatory", "analysis", "achievement", "raw_extraction", "document_metadata"]:
             memories = await self.memory.retrieve_memory(query="credit memo generation", category=category)
@@ -335,108 +357,202 @@ Return STRICT JSON only:
                 for mem in memories:
                     memory_context += f"- {mem}\n"
         
-        base_system = f"""You are a senior ESG banking analyst drafting a credit memo section.
+        # Define tasks
+        task_strategic = """Generate these 3 credit memo sections as a JSON array.
 
-MEMORY CONTEXT (use this data):
-{memory_context}
+SECTION 1: executive_summary (500-700 words)
+Write a comprehensive executive summary following this EXACT structure:
 
-RULES:
-- Use ONLY facts from memory context. If not found, write "Not evidenced".
-- Write 200-400 words per section - be DETAILED and SPECIFIC.
-- Use professional banking language.
-- Cite sources: (Source: CSRD Report), (Source: SBTi Data), etc.
-- Include specific numbers: percentages, tCO2e, peer counts.
-"""
+## 📘 Sustainability-Linked Loan KPI Ambition & Achievability Assessment
 
-        # Define section tasks for each model
-        # MODEL 1: QWEN - Strategic sections (Executive Summary, Risks, Recommendation)
-        task_qwen = """Generate these 3 credit memo sections as a JSON array.
+**Transaction Context:**
+- Borrower: [Company Name]
+- Sector: [Industry] | Region: [Geography] 
+- Proposed Facility: [Loan Amount] Sustainability-Linked Loan
+- Tenor: [Years] | Margin Adjustment: [±X bps]
 
-SECTION 1: executive_summary (400-500 words)
-Write a comprehensive executive summary including:
-- Transaction Overview: Company name, sector, loan type, sustainability-linked nature
-- Target Summary: Metric type, target value, baseline year/value, target year
-- Key Finding - Ambition: Peer percentile rank, comparison to sector median and top quartile
-- Key Finding - Credibility: Score, key signals detected (SBTi, verification, governance)
-- Key Finding - Regulatory: EU Taxonomy eligibility, CSRD compliance, SBTi validation status
-- Recommendation: Clear APPROVE/CONDITIONAL_APPROVAL/REJECT with 2-3 sentence rationale
+**Detailed Report Overview:**
+State that this report assesses whether the borrower's emissions-reduction KPI is ambitious and achievable, in line with EU green-lending expectations, ICMA Sustainability-Linked Loan Principles.
 
-SECTION 2: risks (300-400 words)
-Create a detailed risk assessment with 5 risks:
-- Risk R1: Execution Risk - Can the company deliver on targets?
-- Risk R2: Data Quality Risk - How reliable is the reported data?
-- Risk R3: Regulatory Risk - Exposure to changing regulations
-- Risk R4: Market Risk - External factors affecting achievement
-- Risk R5: Reputational Risk - Greenwashing or credibility concerns
-For each: severity (HIGH/MEDIUM/LOW), description, mitigant, proposed covenant
+**Headline Conclusion:**
+Create a blockquote with the key finding:
+> [Company]'s KPI is [HIGHLY AMBITIOUS/AMBITIOUS/MARKET-ALIGNED/BELOW MARKET], [CREDIBLE/PARTIALLY CREDIBLE/NOT CREDIBLE], and [status of target achievement].
+> [Key implication for credit decision and pricing].
 
-SECTION 3: recommendation (300-400 words)
-Final recommendation section:
-- Decision: APPROVE / CONDITIONAL_APPROVAL / REJECT / MANUAL_REVIEW
-- Detailed rationale (3-4 sentences)
-- Conditions precedent (3-5 bullet points)
-- Conditions subsequent (3-5 bullet points)
-- Monitoring plan: reporting frequency, required documentation, trigger events
-- Proposed covenants: information covenants, KPI performance covenants, step-up/step-down mechanism
+**KPI Under Review:**
+Create a table:
+| Element | Value |
+|---------|-------|
+| Metric | [e.g., Absolute GHG emissions (tCO2e)] |
+| Scope | [Scope 1/2/3 coverage] |
+| Baseline Year | [Year] |
+| Baseline Value | [Value with unit] |
+| Target Year | [Year] |
+| Target Value | [Reduction %] |
+
+**Why This KPI Matters for Bankers:**
+Explain materiality, auditability, and regulatory preference for this type of KPI.
+
+SECTION 2: risks (400-500 words)
+Write a detailed risk assessment with this structure:
+
+## 7. Risk Flags Review
+
+Create a summary risk table:
+| Risk Area | Banker View |
+|-----------|-------------|
+| Baseline credibility | 🟢 Strong / 🟡 Moderate / 🔴 Weak |
+| Data verification | 🟢 Audited / 🟡 Self-reported / 🔴 Unverified |
+| Scope 3 controllability | 🟢 Proven / 🟡 Partial / 🔴 Limited |
+| Execution risk | 🟢 Very low / 🟡 Moderate / 🔴 High |
+| Reputational risk | 🟢 Minimal / 🟡 Moderate / 🔴 Elevated |
+
+For each risk, provide:
+- Risk description
+- Current status assessment
+- Mitigating factors
+- Residual risk level
+
+Conclude with: "No material ESG or KPI-related red flags identified" or list specific flags.
+
+SECTION 3: recommendation (400-500 words)
+Write the final credit recommendation with this structure:
+
+## 8. Final Credit Recommendation
+
+### KPI Classification
+State the classification clearly:
+> [HIGHLY AMBITIOUS & ACHIEVED / AMBITIOUS & ON-TRACK / MARKET-ALIGNED / BELOW MARKET]
+
+### Target Ambition Assessment
+Provide explicit assessment:
+- Percentile ranking vs peers
+- Alignment with science-based pathways
+- Comparison to sector benchmarks
+
+### Loan Decision Guidance
+Provide clear guidance:
+- Decision: APPROVE / CONDITIONAL APPROVAL / REJECT
+- Eligible for favorable pricing: Yes/No
+- Margin step-up risk: Remote/Moderate/Elevated
+- Green portfolio eligibility: Yes/No with justification
+
+### Conditions Precedent (if applicable)
+List 3-5 specific conditions
+
+### Conditions Subsequent (if applicable)
+List 3-5 ongoing monitoring requirements
+
+### One-Line Credit Memo Summary
+Provide a single sentence summary suitable for credit committee:
+> "[Company] presents a [description] KPI that is [validation status], [peer comparison], and [achievement status], resulting in [risk level]."
 
 Return STRICT JSON only:
 [
     {"id": "executive_summary", "title": "Executive Summary", "markdown": "...", "bullets": ["..."], "evidence": [{"source": "...", "reference": "...", "snippet": "..."}]},
-    {"id": "risks", "title": "Key Risks & Mitigants", "markdown": "...", "bullets": ["..."], "evidence": [...]},
-    {"id": "recommendation", "title": "Final Recommendation & Monitoring", "markdown": "...", "bullets": ["..."], "evidence": [...]}
+    {"id": "risks", "title": "Risk Assessment", "markdown": "...", "bullets": ["..."], "evidence": [...]},
+    {"id": "recommendation", "title": "Credit Recommendation and Terms", "markdown": "...", "bullets": ["..."], "evidence": [...]}
 ]"""
+        
+        task_analytical = """Generate these 3 credit memo sections as a JSON array.
 
-        # MODEL 2: GEMINI - Analytical sections (Benchmarking, Track Record, KPI Definition)
-        task_gemini = """Generate these 3 credit memo sections as a JSON array.
+SECTION 1: kpi_definition (300-400 words)
+Write the KPI Definition section with this structure:
 
-SECTION 1: kpi_definition (200-300 words)
-Detailed KPI definition:
-- Metric name and precise definition (e.g., "GHG Emissions Reduction - Scope 1+2")
-- Baseline year and baseline value (with unit, e.g., tCO2e or %)
-- Target year and target value (reduction percentage)
-- Scope coverage explanation (Scope 1, 2, 3 definitions)
-- Boundary clarification (organizational, geographic, operational)
-- Methodology notes and any restatement risks
-- Source citations for all values
+## 1. KPI Definition & Transaction Context
 
-SECTION 2: benchmarking (400-500 words)
-5-Layer Benchmarking Analysis with detailed sub-sections:
+### KPI Under Review
+Create a structured overview:
+- Metric: [Full metric name]
+- Scope: [Scope 1 + Scope 2 + Scope 3 coverage details]
+- Methodology: [GHG Protocol or other standard]
+- Baseline Year: [Year]
+- Baseline Value: [Absolute value with tCO2e unit]
 
-### Layer 1 – Sector Benchmark
-- Company target vs Eurostat sector average
+### Targets Table
+| Target Horizon | Target Value | Reduction vs Baseline |
+|----------------|--------------|----------------------|
+| [Interim Year] | [Value] | [%] |
+| [Long-term Year] | [Value] | [%] |
+
+### Why This KPI Matters for Bankers
+Explain:
+- Materiality to business operations
+- Auditability and manipulation resistance
+- Regulatory preference (EU EBA, ICMA SLLP)
+- Comparison to intensity-based alternatives
+
+SECTION 2: benchmarking (500-600 words)
+Write a 5-layer benchmarking analysis:
+
+## 3. Peer Benchmarking & Ambition Analysis
+
+### Banker Question:
+> "Is this target aggressive relative to peers and science?"
+
+### Layer 1 - Sector Benchmark
+- Company target vs Eurostat/industry sector average
 - Specific percentages and gap analysis
-- Conclusion: POSITIVE/NEUTRAL/NEGATIVE
+- Conclusion: 🟢 POSITIVE / 🟡 NEUTRAL / 🔴 NEGATIVE
 
-### Layer 2 – Size Adjustment  
+### Layer 2 - Size Adjustment
 - Company size context (large cap expectations vs SME)
 - Resource availability for transition
-- Conclusion: POSITIVE/NEUTRAL/NEGATIVE
+- Conclusion: 🟢 POSITIVE / 🟡 NEUTRAL / 🔴 NEGATIVE
 
-### Layer 3 – Geography Adjustment
+### Layer 3 - Geography Adjustment
 - Country renewable energy mix percentage
 - Regional regulatory environment (EU ETS, national policies)
-- Conclusion: POSITIVE/NEUTRAL/NEGATIVE
+- Conclusion: 🟢 POSITIVE / 🟡 NEUTRAL / 🔴 NEGATIVE
 
-### Layer 4 – Comparable Peer Analysis
-- SBTi peer count and confidence level
+### Layer 4 - Comparable Peer Analysis
+Create a comparison with SBTi peers:
+- Peer count and confidence level
 - Peer median and P75 percentile values
-- Company's percentile rank among peers
-- Conclusion: POSITIVE/NEUTRAL/NEGATIVE
+- Company's percentile rank
+- Conclusion: 🟢 POSITIVE / 🟡 NEUTRAL / 🔴 NEGATIVE
 
-### Layer 5 – Climate Pathway Alignment
+### Layer 5 - Climate Pathway Alignment
 - IEA/SBTi pathway requirements for sector
 - Gap to 1.5°C or 2°C alignment
-- Conclusion: POSITIVE/NEUTRAL/NEGATIVE
+- Net-Zero commitment status
+- Conclusion: 🟢 POSITIVE / 🟡 NEUTRAL / 🔴 NEGATIVE
 
-Final ambition classification: WEAK/MARKET_STANDARD/ABOVE_MARKET/SCIENCE_ALIGNED
+### Final Ambition Classification
+State clearly: HIGHLY AMBITIOUS (>75th percentile) / AMBITIOUS (50-75th) / MARKET-ALIGNED (25-50th) / BELOW MARKET (<25th)
 
-SECTION 3: track_record (200-300 words)
-Historical Performance Assessment:
-- List of past sustainability targets (with years)
-- Outcomes for each: MET / PARTIALLY_MET / MISSED / ONGOING
-- Year-over-year emissions trajectory (specific percentages)
-- Track record score (0-100) with rationale
-- Evidence citations from documents
+SECTION 3: track_record (300-400 words)
+Write the performance assessment:
+
+## 4. Performance vs Target (Reality Check)
+
+### Banker Question:
+> "Has the company demonstrated it can deliver on emissions targets?"
+
+### Current Performance Table
+| Metric | Result |
+|--------|--------|
+| Current Year Emissions | [Value tCO2e] |
+| Reduction vs Baseline | [%] |
+| Interim Target | [%] |
+| Status | ✅ Exceeded / 🟡 On Track / ❌ Behind |
+
+### Scope-Level Results
+Provide year-over-year breakdown:
+- Scope 1: [% change]
+- Scope 2: [% change]  
+- Scope 3: [% change] (if applicable)
+
+### Historical Target Achievement
+List past targets and outcomes:
+- [Year] Target: [Met/Partially Met/Missed]
+- [Year] Target: [Met/Partially Met/Missed]
+
+### Banker Interpretation
+Summarize with signals:
+✅ Execution capability proven / ❌ Execution concerns
+✅ KPI not "easy" or cosmetic / ❌ Target appears unambitious
+✅ Downside risk minimal / ❌ Elevated downside risk
 
 Return STRICT JSON only:
 [
@@ -444,89 +560,158 @@ Return STRICT JSON only:
     {"id": "benchmarking", "title": "5-Layer Benchmarking Analysis", "markdown": "...", "bullets": ["..."], "evidence": [...]},
     {"id": "track_record", "title": "Historical Performance / Track Record", "markdown": "...", "bullets": ["..."], "evidence": [...]}
 ]"""
+        
+        task_data = """Generate these 4 credit memo sections as a JSON array.
 
-        # MODEL 3: KIMI - Data sections (Documents, Extracted Data, Credibility)
-        task_kimi = """Generate these 4 credit memo sections as a JSON array.
+SECTION 1: documents_reviewed (200-300 words)
+Write the documents analysis section:
 
-SECTION 1: documents_reviewed (150-200 words)
-List all documents reviewed:
-- Document type (CSRD Report, Sustainability Report, SPO, Financial Statements)
-- Document status: provided / missing / unreadable
-- Extraction quality notes
-- Key evidence gaps identified
-- Data quality assessment: HIGH/MEDIUM/LOW
+## 2. Baseline Integrity & Data Quality (Foundation Check)
 
-SECTION 2: extracted_data (250-350 words)
-All extracted KPI and governance data:
+### Banker Question:
+> "Is the starting point real, recent, audited, and defensible?"
 
-### Emissions Data:
-- Scope 1 emissions (value, year)
-- Scope 2 emissions (value, year)  
-- Scope 3 emissions (if available)
-- Year-over-year changes
+### Documents Analyzed Table
+| Document Type | Status | Data Quality |
+|--------------|--------|--------------|
+| CSRD/Sustainability Report | ✅ Provided / ❌ Missing | HIGH/MEDIUM/LOW |
+| Financial Statements | ✅ Provided / ❌ Missing | HIGH/MEDIUM/LOW |
+| Second-Party Opinion | ✅ Provided / ❌ Missing | HIGH/MEDIUM/LOW |
+| SBTi Validation | ✅ Provided / ❌ Missing | HIGH/MEDIUM/LOW |
 
-### Target Information:
-- Primary reduction target
-- Interim milestones
-- Base year and target year
+### Assessment
+- Baseline year assessment (pre-COVID preferred)
+- Scope coverage (1-2-3)
+- Methodology consistency
+- External assurance status
+- Reporting history
 
-### Governance Findings:
-- Board oversight: Yes/No with details
-- Sustainability Committee: exists/not found
-- Executive compensation tied to ESG: Yes/No with %
-- Third-party verification status: auditor name, scope, date
+### Banker Signals
+❌ No baseline inflation / ✅ Baseline inflation concerns
+❌ No outdated data / ✅ Data staleness concerns  
+✅ Long reporting history / ❌ Limited reporting history
 
-Mark each item as "Evidenced" or "Not evidenced"
+### Conclusion:
+✅ Baseline quality: STRONG / REGULATOR-DEFENSIBLE
+or
+🟡 Baseline quality: MODERATE / REQUIRES VERIFICATION
+or
+❌ Baseline quality: WEAK / NOT DEFENSIBLE
 
-SECTION 3: credibility_signals (300-400 words)
-Detailed credibility signal assessment:
+SECTION 2: extracted_data (300-400 words)
+Write the extracted data section:
 
-### Signal 1: SBTi Validation
-- Status: Committed / Targets Set / Validated / None
-- Evidence and source
-- Weight: HIGH (30 points)
+## Extracted KPI & Governance Data
 
-### Signal 2: Third-Party Verification
-- Auditor name and scope
-- Recency of verification
-- Weight: HIGH (15 points)
+### Emissions Data
+| Metric | Value | Year | Status |
+|--------|-------|------|--------|
+| Scope 1 | [tCO2e] | [Year] | Evidenced/Not Evidenced |
+| Scope 2 | [tCO2e] | [Year] | Evidenced/Not Evidenced |
+| Scope 3 | [tCO2e] | [Year] | Evidenced/Not Evidenced |
+| Total | [tCO2e] | [Year] | Evidenced/Not Evidenced |
 
-### Signal 3: Transition Plan
-- Quality assessment
-- Key milestones identified
-- CapEx allocation mentioned
-- Weight: MEDIUM (10 points)
+### Target Information
+| Element | Value | Status |
+|---------|-------|--------|
+| Reduction Target | [%] | Evidenced |
+| Interim Target | [%] by [Year] | Evidenced/Not Evidenced |
+| Base Year | [Year] | Evidenced |
+| Target Year | [Year] | Evidenced |
 
-### Signal 4: Board Oversight
-- Committee structure
-- Meeting frequency (if known)
-- Weight: MEDIUM (10 points)
+### Governance Findings
+| Element | Finding | Status |
+|---------|---------|--------|
+| Board Climate Oversight | Yes/No + details | Evidenced/Not Evidenced |
+| Sustainability Committee | Yes/No + details | Evidenced/Not Evidenced |
+| Executive ESG Compensation | [%] linked | Evidenced/Not Evidenced |
+| Third-Party Verification | [Auditor name] | Evidenced/Not Evidenced |
 
-### Signal 5: Management Incentives
-- % of compensation tied to ESG
-- Specific KPIs mentioned
-- Weight: MEDIUM (10 points)
+SECTION 3: credibility_signals (400-500 words)
+Write the achievability assessment:
 
-### Signal 6: Past Targets Met
-- Success rate
-- Explanation of any misses
-- Weight: HIGH (15 points)
+## 5. Achievability Assessment (Core Credit Question)
 
-### Signal 7: CapEx Commitment
-- Total budget (if disclosed)
-- Timeline and specific projects
-- Weight: MEDIUM (10 points)
+### Capital & Operational Levers
+List specific decarbonization initiatives:
+- Renewable energy procurement
+- Energy efficiency programs
+- Supply chain engagement
+- Fleet electrification
+- Technology investments
 
-Total credibility score calculation and final rating: HIGH/MEDIUM/LOW
+### Governance & Incentives
+- Board-level ESG oversight: Yes/No
+- Executive compensation linked to decarbonization: Yes/No with %
+- Annual external verification: Yes/No
+- Net-Zero commitment: Yes/No
 
-SECTION 4: sbti_benchmark (200-250 words)
-Deterministic SBTi Benchmark Results:
-- Matched sector from SBTi dataset
-- Peer count and confidence level (HIGH: 100+, MEDIUM: 20-100, LOW: <20)
-- Peer statistics: median reduction %, P75 reduction %
-- Company's percentile rank among peers
-- Ambition classification based on percentile
-- Recommendation for target adjustment (if applicable)
+### Track Record (Strongest Signal)
+- Emissions reduction achieved to date: [%]
+- Target achievement history
+- Consistency of delivery
+
+### Credibility Signal Assessment Table
+| Signal | Status | Weight | Points |
+|--------|--------|--------|--------|
+| SBTi Validation | ✅ Validated / 🟡 Committed / ❌ None | HIGH | 30 |
+| Third-Party Verification | ✅ Audited / 🟡 Self-reported / ❌ None | HIGH | 15 |
+| Past Targets Met | ✅ Yes / 🟡 Partial / ❌ No | HIGH | 15 |
+| Transition Plan Quality | 🟢 Strong / 🟡 Moderate / 🔴 Weak | MEDIUM | 10 |
+| Board Oversight | ✅ Yes / ❌ No | MEDIUM | 10 |
+| Executive Incentives | ✅ Linked / ❌ Not Linked | MEDIUM | 10 |
+| CapEx Commitment | ✅ Disclosed / ❌ Not Disclosed | MEDIUM | 10 |
+
+### Total Score: [X]/100
+
+### Achievability Verdict:
+🟢 VERY HIGH – already demonstrated in practice
+or
+🟡 MODERATE – credible with conditions
+or
+🔴 LOW – significant execution concerns
+
+SECTION 4: sbti_benchmark (300-400 words)
+Write the external validation section:
+
+## 6. External Validation & Regulatory Comfort
+
+### Second-Party Opinion (if available)
+- Provider: [Name]
+- KPI strength assessment: Very Strong / Strong / Moderate / Weak
+- SPT ambition assessment: Highly Ambitious / Ambitious / Market-Aligned / Below Market
+- Peer leadership confirmation: Yes/No
+- ICMA SLLP alignment: Yes/No
+
+### SBTi Status
+| Element | Status |
+|---------|--------|
+| Commitment | ✅ Committed / ❌ Not Committed |
+| Target Validation | ✅ Targets Validated / 🟡 Targets Set / ❌ None |
+| Pathway | 1.5°C / Well-Below 2°C / 2°C / None |
+| Net-Zero Target | ✅ Yes / ❌ No |
+
+### Regulatory Perspective
+Assessment against:
+- EU EBA expectations for ambition
+- Auditability requirements
+- Peer benchmarking standards
+- Greenwashing risk level
+- Green asset ratio eligibility
+
+### EU Taxonomy Alignment
+| Criterion | Status |
+|-----------|--------|
+| Eligible Activity | ✅ Yes / ❌ No / 🟡 Likely |
+| Substantial Contribution | ✅ Met / ❌ Not Met / 🟡 Partial |
+| Do No Significant Harm | ✅ Compliant / ❌ Non-Compliant / 🟡 Not Assessed |
+| Minimum Safeguards | ✅ Compliant / ❌ Non-Compliant / 🟡 Not Assessed |
+
+### CSRD Compliance
+| ESRS Standard | Coverage |
+|--------------|----------|
+| E1 - Climate | ✅ Addressed / 🟡 Partial / ❌ Not Addressed |
+| G1 - Governance | ✅ Addressed / 🟡 Partial / ❌ Not Addressed |
 
 Return STRICT JSON only:
 [
@@ -536,8 +721,53 @@ Return STRICT JSON only:
     {"id": "sbti_benchmark", "title": "Deterministic SBTi Benchmark", "markdown": "...", "bullets": ["..."], "evidence": [...]}
 ]"""
 
-        async def call_model(model, task, model_name):
-            """Call a single model with timeout and error handling."""
+        # Initialize all model clients and exhaustion flags
+        from app.config import settings
+        from app.agents.base_agent import _bytez_exhausted, _openrouter_exhausted
+        
+        # Alias variables for cleaner code
+        bytez_client = self._bytez_client
+        _bytez_credit_exhausted = _bytez_exhausted
+        _bytez_qwen_exhausted = _bytez_exhausted  # Same flag for both Bytez models
+        
+        # Alias task variables
+        task_qwen = task_strategic
+        task_gemini = task_analytical
+        task_kimi = task_data
+        
+        # Base system prompt for all models
+        base_system = f"""You are an expert ESG banking analyst generating a credit memo.
+        
+MEMORY CONTEXT:
+{memory_context}
+
+CRITICAL RULES:
+- Return STRICT JSON only - no markdown, no commentary
+- Use only facts from the memory context above
+- If information is missing, write "Not evidenced"
+- Be professional and bank-grade in your analysis
+"""
+        
+        # Initialize LangChain model clients
+        model_kimi = None
+        model_perplexity = self._perplexity_client
+        model_gemini = None
+        model_llama = self._openrouter_client
+        
+        # Try to initialize Gemini if Google API key is available
+        try:
+            google_api_key = os.getenv("GOOGLE_API_KEY")
+            if google_api_key:
+                model_gemini = ChatGoogleGenerativeAI(
+                    model="gemini-2.0-flash",
+                    google_api_key=google_api_key,
+                    temperature=0
+                )
+        except Exception as e:
+            logging.warning(f"{self.name}: Gemini init failed: {e}")
+        
+        async def call_langchain_model(model, task, model_name):
+            """Call a LangChain model with timeout and error handling."""
             try:
                 logging.info(f"{self.name}: Calling {model_name} for section generation...")
                 messages = [
@@ -557,17 +787,124 @@ Return STRICT JSON only:
                 logging.error(f"{self.name}: {model_name} failed: {e}")
                 return []
 
-        # Run all 3 models in PARALLEL
-        logging.info(f"{self.name}: Launching 3 parallel LLM calls...")
+        async def call_bytez_model(bytez_client, model_id, task, model_name):
+            """Call a Bytez model with timeout and error handling."""
+            try:
+                logging.info(f"{self.name}: Calling {model_name} via Bytez for section generation...")
+                model = bytez_client.model(model_id)
+                bytez_messages = [
+                    {"role": "system", "content": base_system},
+                    {"role": "user", "content": task}
+                ]
+                
+                # Run in executor to avoid blocking
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    results = await asyncio.wait_for(
+                        loop.run_in_executor(pool, lambda: model.run(bytez_messages)),
+                        timeout=180
+                    )
+                
+                if results.error:
+                    raise ValueError(f"Bytez Error: {results.error}")
+                
+                # Handle different output formats from Bytez
+                output = results.output
+                if isinstance(output, dict):
+                    # Format: {"role": "assistant", "content": "..."}
+                    if "content" in output:
+                        content = output["content"]
+                    elif "generated_text" in output:
+                        content = output["generated_text"]
+                    else:
+                        content = str(output)
+                elif isinstance(output, list) and len(output) > 0:
+                    first_item = output[0]
+                    if isinstance(first_item, dict):
+                        if "content" in first_item:
+                            content = first_item["content"]
+                        elif "generated_text" in first_item:
+                            content = first_item["generated_text"]
+                        else:
+                            content = str(first_item)
+                    elif isinstance(first_item, str):
+                        content = first_item
+                    else:
+                        content = str(output)
+                elif isinstance(output, str):
+                    content = output
+                else:
+                    content = str(output)
+                
+                logging.info(f"{self.name}: {model_name} responded with {len(content)} chars")
+                return self.parse_json_robust(content, f"{model_name}_sections")
+            except asyncio.TimeoutError:
+                logging.error(f"{self.name}: {model_name} timed out")
+                return []
+            except Exception as e:
+                logging.error(f"{self.name}: {model_name} failed: {e}")
+                return []
+
+        # Run models in PARALLEL - use whatever is available
+        logging.info(f"{self.name}: Launching parallel LLM calls...")
         
         tasks = []
-        if model_qwen:
-            tasks.append(call_model(model_qwen, task_qwen, "Qwen-72B"))
-        if model_gemini:
-            tasks.append(call_model(model_gemini, task_gemini, "Gemini-1.5-Flash"))
-        if model_llama:
-            tasks.append(call_model(model_llama, task_kimi, "Llama-3.3-70B"))
+        model_names = []
         
+        # Determine which models to use based on availability
+        # Priority: Bytez > OpenRouter > Gemini > DeepSeek > Perplexity
+        
+        # Task 1: Executive Summary (use best available model)
+        if bytez_client and not _bytez_credit_exhausted:
+            tasks.append(call_bytez_model(bytez_client, "google/gemini-2.5-pro", task_qwen, "Bytez-Gemini-2.5-Pro"))
+            model_names.append("Bytez-Gemini-2.5-Pro")
+        elif model_kimi:
+            tasks.append(call_langchain_model(model_kimi, task_qwen, "Kimi-Chat"))
+            model_names.append("Kimi-Chat")
+        elif model_perplexity:
+            tasks.append(call_langchain_model(model_perplexity, task_qwen, "Perplexity-Sonar"))
+            model_names.append("Perplexity-Sonar")
+        elif model_llama:
+            tasks.append(call_langchain_model(model_llama, task_qwen, "Llama-3.3-70B"))
+            model_names.append("Llama-3.3-70B")
+        
+        # Task 2: Benchmarking Analysis (use secondary model)
+        if bytez_client and not _bytez_qwen_exhausted:
+            tasks.append(call_bytez_model(bytez_client, "Qwen/Qwen3-Coder-30B-A3B-Instruct", task_gemini, "Bytez-Qwen3-Coder"))
+            model_names.append("Bytez-Qwen3-Coder")
+        elif model_kimi:
+            tasks.append(call_langchain_model(model_kimi, task_gemini, "Kimi-Bench"))
+            model_names.append("Kimi-Bench")
+        elif model_perplexity:
+            tasks.append(call_langchain_model(model_perplexity, task_gemini, "Perplexity-Bench"))
+            model_names.append("Perplexity-Bench")
+        elif model_gemini:
+            tasks.append(call_langchain_model(model_gemini, task_gemini, "Gemini-2.0-Flash"))
+            model_names.append("Gemini-2.0-Flash")
+        elif model_llama:
+            tasks.append(call_langchain_model(model_llama, task_gemini, "Llama-3.3-70B-Bench"))
+            model_names.append("Llama-3.3-70B-Bench")
+        
+        # Task 3: Data Extraction (use third model or reuse)
+        if model_kimi and "Kimi" not in str(model_names):
+            tasks.append(call_langchain_model(model_kimi, task_kimi, "Kimi-Data"))
+            model_names.append("Kimi-Data")
+        elif model_perplexity and "Perplexity" not in str(model_names):
+            tasks.append(call_langchain_model(model_perplexity, task_kimi, "Perplexity-Data"))
+            model_names.append("Perplexity-Data")
+        elif model_llama:
+            tasks.append(call_langchain_model(model_llama, task_kimi, "Llama-3.3-70B-Data"))
+            model_names.append("Llama-3.3-70B-Data")
+        elif bytez_client:
+            tasks.append(call_bytez_model(bytez_client, "Qwen/Qwen3-Coder-30B-A3B-Instruct", task_kimi, "Bytez-Qwen3-Data"))
+            model_names.append("Bytez-Qwen3-Data")
+        
+        if not tasks:
+            logging.error(f"{self.name}: No models available for credit memo generation!")
+            # Return fallback memo
+            return self._create_fallback_memo("No AI models available - all providers exhausted")
+        
+        logging.info(f"{self.name}: Using models: {model_names}")
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Aggregate all sections
@@ -575,11 +912,21 @@ Return STRICT JSON only:
         for i, result in enumerate(results):
             if isinstance(result, list):
                 all_sections.extend(result)
-                logging.info(f"{self.name}: Model {i+1} contributed {len(result)} sections")
+                logging.info(f"{self.name}: {model_names[i] if i < len(model_names) else f'Model {i+1}'} contributed {len(result)} sections")
             elif isinstance(result, Exception):
-                logging.error(f"{self.name}: Model {i+1} raised exception: {result}")
+                logging.error(f"{self.name}: {model_names[i] if i < len(model_names) else f'Model {i+1}'} raised exception: {result}")
         
-        logging.info(f"{self.name}: Total sections aggregated: {len(all_sections)}")
+        # Deduplicate sections by ID (keep first occurrence)
+        unique_sections = []
+        seen_ids = set()
+        for section in all_sections:
+            sec_id = section.get("id")
+            if sec_id and sec_id not in seen_ids:
+                unique_sections.append(section)
+                seen_ids.add(sec_id)
+        
+        all_sections = unique_sections
+        logging.info(f"{self.name}: Total sections aggregated (deduplicated): {len(all_sections)}")
         
         # Build final credit memo structure
         today = datetime.now().strftime("%Y-%m-%d")
@@ -639,7 +986,7 @@ Return STRICT JSON only:
                 "prepared_by": "GreenGuard ESG Analyst (AI-assisted, Multi-Model)",
                 "as_of_date": today,
                 "version": "1.0",
-                "models_used": ["Qwen-72B", "Gemini-1.5-Flash", "Llama-3.3-70B"]
+                "models_used": model_names if model_names else ["Fallback"]
             },
             "inputs_summary": {
                 "company_name": company_name,

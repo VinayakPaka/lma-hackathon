@@ -4,6 +4,7 @@ import re
 from typing import Dict, Any, Optional
 from app.agents.base_agent import BaseAgent
 from app.services.eurostat_service import EurostatService
+from app.services.sector_matching_service import sector_matching_service
 
 class BenchmarkAgent(BaseAgent):
     """
@@ -207,8 +208,30 @@ class BenchmarkAgent(BaseAgent):
         except Exception:
             raise ValueError(f"Tier3 benchmarking target_value is not numeric: {target_val!r}")
         
+        if not nace:
+             logging.info("NACE code missing in submission, attempting to research via Perplexity...")
+             company_name = submission.get("company_name") or "Unknown Company"
+             researched_nace = await sector_matching_service.research_nace_code(company_name)
+             if researched_nace:
+                 nace = self._normalize_nace(researched_nace)
+                 logging.info(f"Researched NACE code: {nace}")
+
         # 2. Layer 1: Sector Benchmark
-        sector_data = await self.eurostat.get_sector_data(nace)
+        # Primary Eurostat call
+        sector_data = await self.eurostat.get_sector_data(nace) if nace else {"source": "Fallback (No NACE)", "average_reduction_rate": 4.2}
+
+        # User Requirement: If NACE "wrong" (implied by fallback/no data), use Perplexity to check/fix.
+        # If we got fallback data, it might mean the NACE was wrong or just no data exists.
+        if sector_data.get("source", "").startswith("Fallback") and nace:
+             logging.info(f"Eurostat returned fallback for NACE {nace}. verifying NACE with Perplexity...")
+             company_name = submission.get("company_name") or "Unknown Company"
+             researched_nace = await sector_matching_service.research_nace_code(company_name)
+             
+             if researched_nace and self._normalize_nace(researched_nace) != nace:
+                 logging.info(f"Perplexity suggests different NACE: {researched_nace}. Retrying Eurostat.")
+                 nace = self._normalize_nace(researched_nace)
+                 sector_data = await self.eurostat.get_sector_data(nace)
+
         avg_red = sector_data.get("average_reduction_rate", 5.0)
         
         layer1_status = "ABOVE" if target_val > avg_red else "BELOW"
@@ -226,6 +249,8 @@ HARD RULES:
 - Return STRICT JSON only.
 - Use only the data provided below plus any evidenced facts from memory.
 - If you must assume anything, state it explicitly under `limitations`.
+- STYLE: For "analysis", use professional corporate language. Break text into 2-3 short paragraphs for readability. Do not use single massive text blocks.
+
 
 INPUT DATA (deterministic / retrieved):
 - Company Target (reduction %): {target_val}

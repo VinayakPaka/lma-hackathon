@@ -175,13 +175,10 @@ class DocumentProcessorAgent(BaseAgent):
         {text_content[:20000]} 
         """
             
-            # We use the LLM directly here as 'think' usually implies using *existing* memory.
-            # But we can use think_with_memory with an empty category list and custom task if we want consistency.
-            # Let's use the LLM directly to simulate 'reading'.
-            
+            # Use the base agent's call_llm_direct method which handles Bytez and fallbacks properly
             try:
-                response = await self.llm.ainvoke(extraction_prompt)
-                facts_json_str = response.content.strip()
+                response_content = await self.call_llm_direct(extraction_prompt)
+                facts_json_str = response_content.strip()
                 facts = self._parse_json_robust(facts_json_str, doc_type)
                 
                 if facts:

@@ -46,11 +46,20 @@ Output STRICT JSON ONLY:
         # We rely on Agent 1's general extraction or raw text memories
         res = await self.think_with_memory(task, ["company_basics", "raw_extraction", "target"])
         
-        try:
-            import json
-            cleaned = (res or "").strip().replace("```json", "").replace("```", "")
-            data = json.loads(cleaned)
+        # Use robust JSON parsing instead of raising exception
+        data = self.parse_json_robust(res, "achievement_tracker")
+        
+        if data and "error" not in str(data).lower() and "achievement_history" in data:
             await self.remember("achievement", "track_record", data)
             return data
-        except Exception as e:
-            raise ValueError(f"AchievementTrackerAgent returned invalid JSON: {e}")
+        else:
+            # Return a default structure instead of failing
+            logging.warning(f"AchievementTrackerAgent: Could not parse response, using default structure")
+            default_data = {
+                "achievement_history": [],
+                "track_record_score": 0,
+                "track_record_rationale": "Unable to extract historical performance data from documents. Manual review recommended.",
+                "limitations": ["AI extraction failed - documents may require manual review"]
+            }
+            await self.remember("achievement", "track_record", default_data)
+            return default_data
