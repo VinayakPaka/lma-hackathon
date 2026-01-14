@@ -1022,13 +1022,13 @@ export default function KPIBenchmarking() {
         const isApproved = recommendation === 'APPROVE' || recommendation === 'CONDITIONAL_APPROVAL'
 
         // Get target ambition from various possible sources
-        const targetAmbition = result.target_assessment?.ambition_classification
-            || result.peer_benchmark?.ambition_level
-            || result.executive_summary?.ambition_level
-            || (result.peer_benchmark?.company_percentile >= 75 ? 'HIGHLY_AMBITIOUS'
-                : result.peer_benchmark?.company_percentile >= 50 ? 'AMBITIOUS'
-                    : result.peer_benchmark?.company_percentile >= 25 ? 'MARKET_ALIGNED'
-                        : 'BELOW_MARKET')
+        const targetAmbition = result.peer_benchmarking?.ambition_classification?.level
+            || (result.peer_benchmarking?.company_position?.percentile_rank ?
+                (result.peer_benchmarking.company_position.percentile_rank >= 75 ? 'HIGHLY_AMBITIOUS'
+                    : result.peer_benchmarking.company_position.percentile_rank >= 50 ? 'AMBITIOUS'
+                        : result.peer_benchmarking.company_position.percentile_rank >= 25 ? 'MARKET_ALIGNED'
+                            : 'BELOW_MARKET')
+                : 'N/A')
 
         const getRecommendationStyle = () => {
             switch (recommendation) {
@@ -1144,8 +1144,8 @@ export default function KPIBenchmarking() {
                                     <div className="flex justify-between items-center">
                                         <span className="text-white/70 text-sm">Peer Percentile</span>
                                         <span className="text-white font-semibold">
-                                            {result.peer_benchmark?.company_percentile
-                                                ? `${Math.round(result.peer_benchmark.company_percentile)}th`
+                                            {result.peer_benchmarking?.company_position?.percentile_rank
+                                                ? `${Math.round(result.peer_benchmarking.company_position.percentile_rank)}th`
                                                 : 'N/A'}
                                         </span>
                                     </div>
