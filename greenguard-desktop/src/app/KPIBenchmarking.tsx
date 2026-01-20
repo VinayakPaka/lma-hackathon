@@ -1,7 +1,10 @@
-﻿import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { kpiBenchmarkApi, uploadApi } from '@/lib/api'
+import { KobaltCard } from '@/components/ui/KobaltCard'
+import { KobaltButton } from '@/components/ui/KobaltButton'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
     Loader2, Target, TrendingUp, FileText, Upload,
     CheckCircle2, XCircle, AlertTriangle, ChevronRight, Download,
@@ -9,28 +12,10 @@ import {
     Sparkles, ArrowRight, FileUp, Trash2, Zap, BarChart3,
     TrendingDown, CheckCircle, AlertCircle, ExternalLink, History, Clock
 } from 'lucide-react'
-import ReportChat from '@/components/ReportChat'
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-    LineChart, Line, RadialBarChart, RadialBar, PolarAngleAxis
+    LineChart, Line
 } from 'recharts'
-
-// Helper to read/write URL params for persistence
-const getEvaluationIdFromUrl = (): number | null => {
-    const params = new URLSearchParams(window.location.search)
-    const id = params.get('evaluation')
-    return id ? parseInt(id, 10) : null
-}
-
-const setEvaluationIdInUrl = (id: number | null) => {
-    const url = new URL(window.location.href)
-    if (id) {
-        url.searchParams.set('evaluation', id.toString())
-    } else {
-        url.searchParams.delete('evaluation')
-    }
-    window.history.replaceState({}, '', url.toString())
-}
 
 // Types
 interface HistoryItem {
@@ -258,14 +243,11 @@ export default function KPIBenchmarking() {
     // Load saved evaluation mutation
     const loadEvaluationMutation = useMutation({
         mutationFn: (evaluationId: number) => kpiBenchmarkApi.getEvaluationById(evaluationId),
-        onSuccess: (response) => {
+        onSuccess: (response: any) => {
             console.log('Loaded evaluation response:', response.data)
             if (response.data?.result) {
                 setEvaluationResult(response.data.result)
-                const evalId = response.data.evaluation?.id || null
-                setCurrentEvaluationId(evalId)
-                // Persist evaluation ID in URL so it survives page reload
-                setEvaluationIdInUrl(evalId)
+                setCurrentEvaluationId(response.data.evaluation?.id || null)
                 setShowHistory(false)
                 setStep(3)
             } else {
@@ -276,23 +258,40 @@ export default function KPIBenchmarking() {
         onError: (error: Error) => {
             console.error('Failed to load evaluation:', error)
             setRunError(`Failed to load evaluation: ${error.message}`)
-            // Clear URL param on error
-            setEvaluationIdInUrl(null)
         }
     })
-
-    // Load evaluation from URL on initial mount (handles page reload)
-    useEffect(() => {
-        const evalIdFromUrl = getEvaluationIdFromUrl()
-        if (evalIdFromUrl && !evaluationResult && !loadEvaluationMutation.isPending) {
-            console.log('Loading evaluation from URL:', evalIdFromUrl)
-            loadEvaluationMutation.mutate(evalIdFromUrl)
-        }
-    }, []) // Empty deps - only run on mount
 
     useEffect(() => {
         const firstSectionId = evaluationResult?.detailed_report?.sections?.[0]?.id
         if (firstSectionId) setActiveSectionId(firstSectionId)
+    }, [evaluationResult])
+
+    // Intersection Observer to update active section on scroll
+    useEffect(() => {
+        if (!evaluationResult?.detailed_report?.sections) return
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        setActiveSectionId(entry.target.id)
+                    }
+                })
+            },
+            {
+                rootMargin: '-20% 0px -70% 0px',
+                threshold: 0
+            }
+        )
+
+        // Observe all sections
+        const sections = evaluationResult.detailed_report.sections
+        sections.forEach((section) => {
+            const element = document.getElementById(section.id)
+            if (element) observer.observe(element)
+        })
+
+        return () => observer.disconnect()
     }, [evaluationResult])
     const [formData, setFormData] = useState({
         company_name: '',
@@ -372,18 +371,11 @@ export default function KPIBenchmarking() {
                 documents,
             })
         },
-        onSuccess: (response) => {
+        onSuccess: (response: any) => {
             setEvaluationResult(response.data)
             // Capture evaluation ID for PDF generation without re-running
             if (response.data?.evaluation_id) {
                 setCurrentEvaluationId(response.data.evaluation_id)
-                // Persist in URL so page reload works
-                setEvaluationIdInUrl(response.data.evaluation_id)
-            }
-            // Check if save failed (backend still returns result but with save_error)
-            if (response.data?.save_error) {
-                console.warn('Evaluation completed but failed to save:', response.data.save_error)
-                setRunError(`Warning: Report generated but may not persist. Error: ${response.data.save_error}`)
             }
             setIsAnalyzing(false)
             setStep(3)
@@ -426,7 +418,7 @@ export default function KPIBenchmarking() {
                 documents,
             })
         },
-        onSuccess: (response) => {
+        onSuccess: (response: any) => {
             const blob = new Blob([response.data], { type: 'application/pdf' })
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
@@ -462,21 +454,8 @@ export default function KPIBenchmarking() {
     const startAnalysis = () => {
         setRunError(null)
         setIsAnalyzing(true)
-        // Clear any old evaluation from URL before starting new one
-        setEvaluationIdInUrl(null)
         evaluateMutation.mutate()
     }
-
-    // Reset to start a new assessment
-    const startNewAssessment = useCallback(() => {
-        setStep(1)
-        setEvaluationResult(null)
-        setCurrentEvaluationId(null)
-        setEvaluationIdInUrl(null)
-        setRunError(null)
-        setUploadedDocs([])
-        setShowHistory(false)
-    }, [])
 
     const canProceed =
         formData.company_name &&
@@ -488,124 +467,127 @@ export default function KPIBenchmarking() {
         formData.baseline_value &&
         formData.timeline_end_year >= 2025
 
-    // Show loading state when loading evaluation from URL
-    if (loadEvaluationMutation.isPending) {
-        return (
-            <div className="min-h-screen bg-[#0a0f1a] text-white flex items-center justify-center">
-                <div className="text-center">
-                    <Loader2 className="w-12 h-12 text-emerald-400 animate-spin mx-auto mb-4" />
-                    <h2 className="text-xl font-semibold mb-2">Loading Evaluation</h2>
-                    <p className="text-gray-400">Please wait while we retrieve your saved report...</p>
-                </div>
-            </div>
-        )
-    }
-
+    // History View
     // History View
     if (showHistory) {
         const historyItems: HistoryItem[] = historyData?.data?.evaluations || []
         return (
-            <div className="min-h-screen bg-[#0a0f1a] text-white">
-                <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                    <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse" />
-                </div>
-
-                <div className="relative z-10 max-w-5xl mx-auto px-6 py-12">
-                    {/* Back Button */}
-                    <button onClick={startNewAssessment} className="flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors">
-                        <ChevronRight className="w-5 h-5 rotate-180" />
-                        Back to New Assessment
-                    </button>
-
-                    {/* Header */}
-                    <div className="text-center mb-12">
-                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500/10 border border-purple-500/20 rounded-full text-purple-400 text-sm mb-6">
-                            <History className="w-4 h-4" />
+            <div className="space-y-6 animate-fade-in">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-8">
+                    <div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 bg-kobalt-blue/10 rounded-full text-kobalt-blue text-xs font-medium mb-3">
+                            <History className="w-3 h-3" />
                             Assessment History
                         </div>
-                        <h1 className="text-4xl font-bold mb-4">Past Evaluations</h1>
-                        <p className="text-gray-400 max-w-xl mx-auto">
+                        <h1 className="text-3xl font-bold text-kobalt-black">Past Evaluations</h1>
+                        <p className="text-kobalt-gray-dark mt-2">
                             View and load previously completed KPI assessments
                         </p>
                     </div>
+                    <KobaltButton
+                        variant="outline"
+                        onClick={() => setShowHistory(false)}
+                    >
+                        <ChevronRight className="w-4 h-4 rotate-180 mr-2" />
+                        Back to New Assessment
+                    </KobaltButton>
+                </div>
 
-                    {/* History List */}
-                    {isLoadingHistory ? (
-                        <div className="flex justify-center py-20">
-                            <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+                {/* History List */}
+                {isLoadingHistory ? (
+                    <div className="flex justify-center py-20">
+                        <Loader2 className="w-8 h-8 text-kobalt-blue animate-spin" />
+                    </div>
+                ) : historyItems.length === 0 ? (
+                    <KobaltCard>
+                        <div className="text-center py-20">
+                            <Clock className="w-12 h-12 text-kobalt-gray-light mx-auto mb-4" />
+                            <p className="text-kobalt-black text-lg font-medium">No evaluations found</p>
+                            <p className="text-kobalt-gray mt-2">Complete your first assessment to see it here</p>
                         </div>
-                    ) : historyItems.length === 0 ? (
-                        <div className="text-center py-20 bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl">
-                            <Clock className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                            <p className="text-gray-400 text-lg">No evaluations found</p>
-                            <p className="text-gray-500 text-sm mt-2">Complete your first assessment to see it here</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            {historyItems.map((item) => {
-                                const isApproved = item.banker_decision === 'APPROVE' || item.banker_decision === 'CONDITIONAL_APPROVAL'
-                                const gradeColor = item.assessment_grade === 'AMBITIOUS' ? 'text-green-400' :
-                                    item.assessment_grade === 'MODERATE' ? 'text-amber-400' : 'text-red-400'
-                                const decisionColor = isApproved ? 'bg-green-500/20 text-green-400' :
-                                    item.banker_decision === 'REJECT' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'
+                    </KobaltCard>
+                ) : (
+                    <div className="space-y-4">
+                        {historyItems.map((item) => {
+                            const isApproved = item.banker_decision === 'APPROVE' || item.banker_decision === 'CONDITIONAL_APPROVAL'
+                            const gradeColor = item.assessment_grade === 'AMBITIOUS' ? 'text-green-600 bg-green-50' :
+                                item.assessment_grade === 'MODERATE' ? 'text-amber-600 bg-amber-50' : 'text-red-600 bg-red-50'
 
-                                return (
-                                    <div
-                                        key={item.id}
-                                        className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6 hover:border-purple-500/30 transition-colors cursor-pointer"
-                                        onClick={() => loadEvaluationMutation.mutate(item.id)}
-                                    >
-                                        <div className="flex items-start justify-between">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-3 mb-2">
-                                                    <h3 className="text-lg font-semibold text-white">{item.company_name}</h3>
-                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${decisionColor}`}>
-                                                        {item.banker_decision?.replace(/_/g, ' ') || 'PENDING'}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-4 text-sm text-gray-400">
-                                                    <span>{item.industry_sector}</span>
-                                                    <span>•</span>
-                                                    <span>{item.target_value?.toFixed(1)}% reduction by {item.timeline_end_year}</span>
-                                                    <span>•</span>
-                                                    <span className={gradeColor}>{item.assessment_grade || 'N/A'}</span>
-                                                </div>
-                                                <div className="flex items-center gap-2 mt-3 text-xs text-gray-500">
-                                                    <Clock className="w-3 h-3" />
-                                                    {new Date(item.created_at).toLocaleDateString()} {new Date(item.created_at).toLocaleTimeString()}
-                                                    <span className="ml-2 text-gray-600">Ref: {item.loan_reference_id}</span>
-                                                </div>
+                            const decisionColor = isApproved ? 'bg-green-100 text-green-700 border border-green-200' :
+                                item.banker_decision === 'REJECT' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-amber-100 text-amber-700 border border-amber-200'
+
+                            return (
+                                <KobaltCard
+                                    key={item.id}
+                                    className="cursor-pointer hover:border-kobalt-blue hover:shadow-md transition-all group"
+                                    onClick={() => loadEvaluationMutation.mutate(item.id)}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <h3 className="text-lg font-bold text-kobalt-black group-hover:text-kobalt-blue transition-colors">
+                                                    {item.company_name}
+                                                </h3>
+                                                <span className={`px-2 py-0.5 rounded-md text-xs font-semibold uppercase tracking-wide ${decisionColor}`}>
+                                                    {item.banker_decision?.replace(/_/g, ' ') || 'PENDING'}
+                                                </span>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        kpiBenchmarkApi.getPdfFromSaved(item.id).then(response => {
-                                                            const blob = new Blob([response.data], { type: 'application/pdf' })
-                                                            const url = URL.createObjectURL(blob)
-                                                            const a = document.createElement('a')
-                                                            a.href = url
-                                                            a.download = `KPI_Assessment_${item.company_name.replace(/\s+/g, '_')}.pdf`
-                                                            document.body.appendChild(a)
-                                                            a.click()
-                                                            a.remove()
-                                                            URL.revokeObjectURL(url)
-                                                        })
-                                                    }}
-                                                    className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-                                                    title="Download PDF"
-                                                >
-                                                    <Download className="w-4 h-4 text-gray-400" />
-                                                </button>
-                                                <ArrowRight className="w-5 h-5 text-gray-600" />
+                                            <div className="flex items-center gap-4 text-sm text-kobalt-gray-dark">
+                                                <div className="flex items-center gap-1.5">
+                                                    <Building2 className="w-4 h-4 text-kobalt-gray" />
+                                                    <span>{item.industry_sector}</span>
+                                                </div>
+                                                <span className="text-kobalt-border">•</span>
+                                                <div className="flex items-center gap-1.5">
+                                                    <Target className="w-4 h-4 text-kobalt-gray" />
+                                                    <span>{item.target_value?.toFixed(1)}% reduction by {item.timeline_end_year}</span>
+                                                </div>
+                                                <span className="text-kobalt-border">•</span>
+                                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${gradeColor}`}>
+                                                    {item.assessment_grade || 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-2 mt-4 text-xs text-kobalt-gray">
+                                                <Clock className="w-3 h-3" />
+                                                <span>{new Date(item.created_at).toLocaleDateString()}</span>
+                                                <span>at</span>
+                                                <span>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                <span className="ml-2 px-1.5 py-0.5 bg-gray-100 rounded text-gray-500 font-mono">Ref: {item.loan_reference_id}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <KobaltButton
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    kpiBenchmarkApi.getPdfFromSaved(item.id).then((response: any) => {
+                                                        const blob = new Blob([response.data], { type: 'application/pdf' })
+                                                        const url = URL.createObjectURL(blob)
+                                                        const a = document.createElement('a')
+                                                        a.href = url
+                                                        a.download = `KPI_Assessment_${item.company_name.replace(/\s+/g, '_')}.pdf`
+                                                        document.body.appendChild(a)
+                                                        a.click()
+                                                        a.remove()
+                                                        URL.revokeObjectURL(url)
+                                                    })
+                                                }}
+                                                title="Download PDF"
+                                            >
+                                                <Download className="w-4 h-4" />
+                                            </KobaltButton>
+                                            <div className="p-2 text-kobalt-gray-light group-hover:text-kobalt-blue transition-colors">
+                                                <ArrowRight className="w-5 h-5" />
                                             </div>
                                         </div>
                                     </div>
-                                )
-                            })}
-                        </div>
-                    )}
-                </div>
+                                </KobaltCard>
+                            )
+                        })}
+                    </div>
+                )}
             </div>
         )
     }
@@ -613,232 +595,223 @@ export default function KPIBenchmarking() {
     // Step 1: Input Form
     if (step === 1) {
         return (
-            <div className="min-h-screen bg-[#0a0f1a] text-white">
-                {/* Animated Background */}
-                <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                    <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" />
-                    <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse delay-1000" />
-                </div>
-
-                <div className="relative z-10 max-w-5xl mx-auto px-6 py-12">
-                    {/* History Button - Top Right */}
-                    <div className="flex justify-end mb-4">
-                        <button
-                            onClick={() => { setShowHistory(true); refetchHistory(); }}
-                            className="flex items-center gap-2 px-4 py-2 bg-gray-800/50 hover:bg-gray-800 border border-gray-700 rounded-xl text-gray-300 hover:text-white transition-all"
-                        >
-                            <History className="w-4 h-4" />
-                            View History
-                        </button>
-                    </div>
-
-                    {/* Header */}
-                    <div className="text-center mb-12">
-                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-emerald-400 text-sm mb-6">
-                            <Sparkles className="w-4 h-4" />
+            <div className="space-y-6 animate-fade-in">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-8">
+                    <div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 bg-kobalt-blue/10 rounded-full text-kobalt-blue text-xs font-medium mb-3">
+                            <Sparkles className="w-3 h-3" />
                             AI-Powered ESG Assessment
                         </div>
-                        <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-white via-emerald-200 to-emerald-400 bg-clip-text text-transparent">
-                            KPI Benchmarking Engine
-                        </h1>
-                        <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+                        <h1 className="text-3xl font-bold text-kobalt-black">KPI Benchmarking Engine</h1>
+                        <p className="text-kobalt-gray-dark mt-2">
                             Evaluate sustainability-linked loan targets against industry peers and science-based pathways
                         </p>
+                    </div>
+                    <div className="flex gap-3">
                         {statsData?.data && (
-                            <div className="flex justify-center gap-8 mt-8">
-                                <div className="flex items-center gap-2 text-gray-400">
-                                    <Users className="w-5 h-5 text-emerald-400" />
-                                    <span className="text-white font-semibold">{statsData.data.companies_count?.toLocaleString()}</span>
-                                    <span>SBTi Companies</span>
+                            <div className="flex gap-4 text-sm bg-white border border-kobalt-border rounded-xl px-4 py-2">
+                                <div className="flex items-center gap-2">
+                                    <Users className="w-4 h-4 text-kobalt-blue" />
+                                    <span className="font-semibold text-kobalt-black">{statsData.data.companies_count?.toLocaleString()}</span>
+                                    <span className="text-kobalt-gray">Companies</span>
                                 </div>
-                                <div className="flex items-center gap-2 text-gray-400">
-                                    <Globe className="w-5 h-5 text-blue-400" />
-                                    <span className="text-white font-semibold">{statsData.data.sectors_available || 85}</span>
-                                    <span>Industry Sectors</span>
+                                <div className="w-px bg-kobalt-border" />
+                                <div className="flex items-center gap-2">
+                                    <Globe className="w-4 h-4 text-kobalt-blue" />
+                                    <span className="font-semibold text-kobalt-black">{statsData.data.sectors_available || 85}</span>
+                                    <span className="text-kobalt-gray">Sectors</span>
                                 </div>
                             </div>
                         )}
-                    </div>
-
-                    {/* Main Form Card */}
-                    <div className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 rounded-3xl p-8 shadow-2xl">
-                        <div className="grid grid-cols-2 gap-8">
-                            {/* Left Column - Company Info */}
-                            <div className="space-y-6">
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className="p-2 bg-emerald-500/20 rounded-lg">
-                                        <Building2 className="w-5 h-5 text-emerald-400" />
-                                    </div>
-                                    <h2 className="text-xl font-semibold">Borrower Information</h2>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Company Name</label>
-                                    <input
-                                        type="text"
-                                        value={formData.company_name}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, company_name: e.target.value }))}
-                                        className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                                        placeholder="e.g., Atos SE"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Industry Sector</label>
-                                    <select
-                                        value={formData.industry_sector}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, industry_sector: e.target.value }))}
-                                        className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all appearance-none cursor-pointer"
-                                    >
-                                        <option value="">Select industry sector</option>
-                                        {INDUSTRY_SECTORS.map(sector => (
-                                            <option key={sector} value={sector}>{sector}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">Country</label>
-                                        <select
-                                            value={formData.country_code}
-                                            onChange={(e) =>
-                                                setFormData(prev => ({ ...prev, country_code: e.target.value }))
-                                            }
-                                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all appearance-none cursor-pointer"
-                                        >
-                                            <option value="">Select Country</option>
-                                            {EU_COUNTRIES.map(country => (
-                                                <option key={country.code} value={country.code}>
-                                                    {country.name} ({country.code})
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <p className="mt-1 text-xs text-gray-500">EU, EEA, UK & Switzerland supported</p>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">NACE Code</label>
-                                        <input
-                                            type="text"
-                                            value={formData.nace_code}
-                                            onChange={(e) =>
-                                                setFormData(prev => ({ ...prev, nace_code: e.target.value.toUpperCase().trim() }))
-                                            }
-                                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                                            placeholder="e.g., C25.11 or J62"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">Loan Type</label>
-                                        <input
-                                            type="text"
-                                            value={formData.loan_type}
-                                            onChange={(e) => setFormData(prev => ({ ...prev, loan_type: e.target.value }))}
-                                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-emerald-500 transition-all"
-                                            placeholder="Sustainability-Linked Loan"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Right Column - KPI Details */}
-                            <div className="space-y-6">
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className="p-2 bg-blue-500/20 rounded-lg">
-                                        <Target className="w-5 h-5 text-blue-400" />
-                                    </div>
-                                    <h2 className="text-xl font-semibold">Sustainability Target</h2>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">Baseline Emissions (tCO2e)</label>
-                                        <input
-                                            type="number"
-                                            value={formData.baseline_value}
-                                            onChange={(e) => setFormData(prev => ({ ...prev, baseline_value: e.target.value }))}
-                                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-blue-500 transition-all"
-                                            placeholder="100000"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">Baseline Year</label>
-                                        <input
-                                            type="number"
-                                            value={formData.baseline_year}
-                                            onChange={(e) => setFormData(prev => ({ ...prev, baseline_year: parseInt(e.target.value) }))}
-                                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:border-blue-500 transition-all"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">Target Emissions (tCO2e)</label>
-                                        <input
-                                            type="number"
-                                            value={formData.target_emissions}
-                                            onChange={(e) => setFormData(prev => ({ ...prev, target_emissions: e.target.value }))}
-                                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-blue-500 transition-all"
-                                            placeholder="e.g., 54000"
-                                        />
-                                        <div className="mt-2 flex items-center justify-between text-xs">
-                                            <span className="text-gray-500">Auto-calculated reduction</span>
-                                            <span className={Number.isFinite(computedReductionPct) && computedReductionPct >= 0 ? 'text-emerald-300' : 'text-amber-300'}>
-                                                {Number.isFinite(computedReductionPct) ? `${computedReductionPct.toFixed(1)}%` : '—'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <input
-                                            type="number"
-                                            value={formData.timeline_end_year}
-                                            onChange={(e) => setFormData(prev => ({ ...prev, timeline_end_year: parseInt(e.target.value) }))}
-                                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:border-blue-500 transition-all"
-                                            min="2025"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Emissions Scope</label>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {['Scope 1+2', 'Scope 1+2+3', 'Scope 3'].map(scope => (
-                                            <button
-                                                key={scope}
-                                                onClick={() => setFormData(prev => ({ ...prev, emissions_scope: scope }))}
-                                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${formData.emissions_scope === scope
-                                                    ? 'bg-blue-500 text-white'
-                                                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                                                    }`}
-                                            >
-                                                {scope}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Continue Button */}
-                        <div className="mt-10 flex justify-end">
-                            <button
-                                onClick={() => canProceed && setStep(2)}
-                                disabled={!canProceed}
-                                className={`group flex items-center gap-3 px-8 py-4 rounded-xl font-semibold text-lg transition-all ${canProceed
-                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25'
-                                    : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                                    }`}
-                            >
-                                Continue to Documents
-                                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                            </button>
-                        </div>
+                        <KobaltButton
+                            variant="outline"
+                            onClick={() => { setShowHistory(true); refetchHistory(); }}
+                            className="bg-white"
+                        >
+                            <History className="w-4 h-4 mr-2" />
+                            View History
+                        </KobaltButton>
                     </div>
                 </div>
+
+                {/* Main Form Card */}
+                <KobaltCard>
+                    <div className="grid grid-cols-2 gap-8">
+                        {/* Left Column - Company Info */}
+                        <div className="space-y-6">
+                            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-kobalt-border">
+                                <div className="p-2 bg-kobalt-blue/10 rounded-lg">
+                                    <Building2 className="w-5 h-5 text-kobalt-blue" />
+                                </div>
+                                <h2 className="text-lg font-semibold text-kobalt-black">Borrower Information</h2>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-kobalt-black mb-2">Company Name</label>
+                                <input
+                                    type="text"
+                                    value={formData.company_name}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, company_name: e.target.value }))}
+                                    className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black placeholder-kobalt-gray focus:border-kobalt-blue focus:ring-1 focus:ring-kobalt-blue transition-all outline-none"
+                                    placeholder="e.g., Atos SE"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-kobalt-black mb-2">Industry Sector</label>
+                                <select
+                                    value={formData.industry_sector}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, industry_sector: e.target.value }))}
+                                    className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black focus:border-kobalt-blue focus:ring-1 focus:ring-kobalt-blue transition-all outline-none appearance-none cursor-pointer"
+                                >
+                                    <option value="">Select industry sector</option>
+                                    {INDUSTRY_SECTORS.map(sector => (
+                                        <option key={sector} value={sector}>{sector}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-kobalt-black mb-2">Country</label>
+                                    <select
+                                        value={formData.country_code}
+                                        onChange={(e) =>
+                                            setFormData(prev => ({ ...prev, country_code: e.target.value }))
+                                        }
+                                        className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black focus:border-kobalt-blue focus:ring-1 focus:ring-kobalt-blue transition-all outline-none appearance-none cursor-pointer"
+                                    >
+                                        <option value="">Select Country</option>
+                                        {EU_COUNTRIES.map(country => (
+                                            <option key={country.code} value={country.code}>
+                                                {country.name} ({country.code})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="mt-1.5 text-xs text-kobalt-gray">EU, EEA, UK & Switzerland supported</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-kobalt-black mb-2">NACE Code</label>
+                                    <input
+                                        type="text"
+                                        value={formData.nace_code}
+                                        onChange={(e) =>
+                                            setFormData(prev => ({ ...prev, nace_code: e.target.value.toUpperCase().trim() }))
+                                        }
+                                        className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black placeholder-kobalt-gray focus:border-kobalt-blue focus:ring-1 focus:ring-kobalt-blue transition-all outline-none"
+                                        placeholder="e.g., C25.11 or J62"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-kobalt-black mb-2">Loan Type</label>
+                                    <input
+                                        type="text"
+                                        value={formData.loan_type}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, loan_type: e.target.value }))}
+                                        className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black placeholder-kobalt-gray focus:border-kobalt-blue focus:ring-1 focus:ring-kobalt-blue transition-all outline-none"
+                                        placeholder="Sustainability-Linked Loan"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Right Column - KPI Details */}
+                        <div className="space-y-6">
+                            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-kobalt-border">
+                                <div className="p-2 bg-green-500/10 rounded-lg">
+                                    <Target className="w-5 h-5 text-green-600" />
+                                </div>
+                                <h2 className="text-lg font-semibold text-kobalt-black">Sustainability Target</h2>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-kobalt-black mb-2">Baseline Emissions (tCO2e)</label>
+                                    <input
+                                        type="number"
+                                        value={formData.baseline_value}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, baseline_value: e.target.value }))}
+                                        className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black placeholder-kobalt-gray focus:border-green-600 focus:ring-1 focus:ring-green-600 transition-all outline-none"
+                                        placeholder="100000"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-kobalt-black mb-2">Baseline Year</label>
+                                    <input
+                                        type="number"
+                                        value={formData.baseline_year}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, baseline_year: parseInt(e.target.value) }))}
+                                        className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black focus:border-green-600 focus:ring-1 focus:ring-green-600 transition-all outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-kobalt-black mb-2">Target Emissions (tCO2e)</label>
+                                    <input
+                                        type="number"
+                                        value={formData.target_emissions}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, target_emissions: e.target.value }))}
+                                        className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black placeholder-kobalt-gray focus:border-green-600 focus:ring-1 focus:ring-green-600 transition-all outline-none"
+                                        placeholder="e.g., 54000"
+                                    />
+                                    <div className="mt-2 flex items-center justify-between text-xs">
+                                        <span className="text-kobalt-gray">Auto-calculated reduction</span>
+                                        <span className={`font-medium ${Number.isFinite(computedReductionPct) && computedReductionPct >= 0 ? 'text-green-600' : 'text-amber-600'}`}>
+                                            {Number.isFinite(computedReductionPct) ? `${computedReductionPct.toFixed(1)}%` : '—'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-kobalt-black mb-2">Target Year</label>
+                                    <input
+                                        type="number"
+                                        value={formData.timeline_end_year}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, timeline_end_year: parseInt(e.target.value) }))}
+                                        className="w-full px-4 py-2.5 bg-white border border-kobalt-border rounded-xl text-kobalt-black focus:border-green-600 focus:ring-1 focus:ring-green-600 transition-all outline-none"
+                                        min="2025"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-kobalt-black mb-2">Emissions Scope</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {['Scope 1+2', 'Scope 1+2+3', 'Scope 3'].map(scope => (
+                                        <button
+                                            key={scope}
+                                            onClick={() => setFormData(prev => ({ ...prev, emissions_scope: scope }))}
+                                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${formData.emissions_scope === scope
+                                                ? 'bg-kobalt-blue text-white shadow-sm'
+                                                : 'bg-white border border-kobalt-border text-kobalt-gray hover:bg-gray-50'
+                                                }`}
+                                        >
+                                            {scope}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Continue Button */}
+                    <div className="mt-8 pt-6 border-t border-kobalt-border flex justify-end">
+                        <KobaltButton
+                            onClick={() => canProceed && setStep(2)}
+                            disabled={!canProceed}
+                            size="lg"
+                            className="w-full sm:w-auto"
+                        >
+                            Continue to Documents
+                            <ArrowRight className="w-5 h-5 ml-2" />
+                        </KobaltButton>
+                    </div>
+                </KobaltCard>
             </div>
         )
     }
@@ -846,47 +819,47 @@ export default function KPIBenchmarking() {
     // Step 2: Document Upload
     if (step === 2) {
         return (
-            <div className="min-h-screen bg-[#0a0f1a] text-white">
-                <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                    <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl" />
-                </div>
-
-                <div className="relative z-10 max-w-5xl mx-auto px-6 py-12">
-                    {/* Back Button */}
-                    <button onClick={() => setStep(1)} className="flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors">
-                        <ChevronRight className="w-5 h-5 rotate-180" />
-                        Back to Company Details
-                    </button>
-
-                    {/* Header */}
-                    <div className="text-center mb-12">
-                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500/10 border border-purple-500/20 rounded-full text-purple-400 text-sm mb-6">
-                            <FileUp className="w-4 h-4" />
+            <div className="space-y-6 animate-fade-in">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-8">
+                    <div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 bg-kobalt-blue/10 rounded-full text-kobalt-blue text-xs font-medium mb-3">
+                            <FileUp className="w-3 h-3" />
                             Document Analysis
                         </div>
-                        <h1 className="text-4xl font-bold mb-4">Upload Supporting Documents</h1>
-                        <p className="text-gray-400 max-w-xl mx-auto">
+                        <h1 className="text-3xl font-bold text-kobalt-black">Upload Supporting Documents</h1>
+                        <p className="text-kobalt-gray-dark mt-2">
                             Upload ESG reports and sustainability documents for AI-powered analysis
                         </p>
                     </div>
+                    <KobaltButton
+                        variant="ghost"
+                        onClick={() => setStep(1)}
+                        className="flex items-center gap-2"
+                    >
+                        <ChevronRight className="w-5 h-5 rotate-180" />
+                        Back to Company Details
+                    </KobaltButton>
+                </div>
 
+                <KobaltCard>
                     {/* Document Upload Grid */}
                     <div className="grid grid-cols-2 gap-6 mb-8">
                         {DOCUMENT_TYPES.map((docType) => {
                             const uploadedDoc = uploadedDocs.find(d => d.document_type === docType.value)
                             const Icon = docType.icon
                             const colorClasses = ({
-                                emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400' },
-                                blue: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', text: 'text-blue-400' },
-                                purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/30', text: 'text-purple-400' },
-                                amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-400' },
-                            } as const)[docType.color] || { bg: 'bg-gray-800/50', border: 'border-gray-700', text: 'text-gray-300' }
+                                emerald: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-600' },
+                                blue: { bg: 'bg-kobalt-blue/10', border: 'border-kobalt-blue/30', text: 'text-kobalt-blue' },
+                                purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/30', text: 'text-purple-600' },
+                                amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-600' },
+                            } as const)[docType.color] || { bg: 'bg-gray-100', border: 'border-gray-200', text: 'text-gray-500' }
 
                             return (
                                 <div
                                     key={docType.value}
                                     className={`relative p-6 rounded-2xl border-2 border-dashed transition-all ${uploadedDoc
-                                        ? 'bg-gray-800/50 border-gray-600'
+                                        ? 'bg-gray-50 border-gray-200'
                                         : `${colorClasses.bg} ${colorClasses.border} hover:border-opacity-60`
                                         }`}
                                 >
@@ -895,18 +868,18 @@ export default function KPIBenchmarking() {
                                             <div className="flex items-start gap-4">
                                                 <div className={`p-3 rounded-xl ${colorClasses.bg}`}>
                                                     {uploadedDoc.status === 'ready' ? (
-                                                        <CheckCircle2 className="w-6 h-6 text-green-400" />
+                                                        <CheckCircle2 className="w-6 h-6 text-green-600" />
                                                     ) : uploadedDoc.status === 'uploading' ? (
-                                                        <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                                                        <Loader2 className="w-6 h-6 text-kobalt-blue animate-spin" />
                                                     ) : (
-                                                        <XCircle className="w-6 h-6 text-red-400" />
+                                                        <XCircle className="w-6 h-6 text-red-600" />
                                                     )}
                                                 </div>
                                                 <div>
-                                                    <p className="font-medium text-white">{docType.label}</p>
-                                                    <p className="text-sm text-gray-400 truncate max-w-xs">{uploadedDoc.filename}</p>
-                                                    <p className={`text-xs mt-1 ${uploadedDoc.status === 'ready' ? 'text-green-400' :
-                                                        uploadedDoc.status === 'uploading' ? 'text-blue-400' : 'text-red-400'
+                                                    <p className="font-medium text-kobalt-black">{docType.label}</p>
+                                                    <p className="text-sm text-kobalt-gray truncate max-w-xs">{uploadedDoc.filename}</p>
+                                                    <p className={`text-xs mt-1 ${uploadedDoc.status === 'ready' ? 'text-green-600' :
+                                                        uploadedDoc.status === 'uploading' ? 'text-kobalt-blue' : 'text-red-600'
                                                         }`}>
                                                         {uploadedDoc.status === 'ready' ? 'Ready for analysis' :
                                                             uploadedDoc.status === 'uploading' ? 'Processing...' : 'Upload failed'}
@@ -915,9 +888,9 @@ export default function KPIBenchmarking() {
                                             </div>
                                             <button
                                                 onClick={() => removeDocument(uploadedDoc.filename)}
-                                                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                                                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
                                             >
-                                                <Trash2 className="w-4 h-4 text-gray-400" />
+                                                <Trash2 className="w-4 h-4 text-kobalt-gray" />
                                             </button>
                                         </div>
                                     ) : (
@@ -932,13 +905,13 @@ export default function KPIBenchmarking() {
                                                 <div className={`inline-flex p-4 rounded-2xl ${colorClasses.bg} mb-4`}>
                                                     <Icon className={`w-8 h-8 ${colorClasses.text}`} />
                                                 </div>
-                                                <p className="font-medium text-white mb-1">{docType.label}</p>
-                                                <p className="text-sm text-gray-500 mb-3">
+                                                <p className="font-medium text-kobalt-black mb-1">{docType.label}</p>
+                                                <p className="text-sm text-kobalt-gray mb-3">
                                                     {docType.mandatory ? (
-                                                        <span className="text-amber-400">Required</span>
+                                                        <span className="text-amber-600">Required</span>
                                                     ) : 'Optional'}
                                                 </p>
-                                                <div className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg text-sm text-gray-400">
+                                                <div className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-kobalt-border rounded-lg text-sm text-kobalt-gray-dark shadow-sm">
                                                     <Upload className="w-4 h-4" />
                                                     Click to upload
                                                 </div>
@@ -951,65 +924,59 @@ export default function KPIBenchmarking() {
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="flex items-center justify-between">
-                        <p className="text-gray-500 text-sm">
+                    <div className="flex items-center justify-between border-t border-kobalt-border pt-6">
+                        <p className="text-kobalt-gray text-sm">
                             {uploadedDocs.filter(d => d.status === 'ready').length} document(s) ready for analysis
                         </p>
-                        <button
+                        <KobaltButton
                             onClick={startAnalysis}
                             disabled={isAnalyzing || !canRunAssessment}
-                            className={`group flex items-center gap-3 px-8 py-4 rounded-xl font-semibold text-lg transition-all ${canRunAssessment && !isAnalyzing
-                                ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg shadow-purple-500/25'
-                                : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                                }`}
+                            isLoading={isAnalyzing}
+                            size="lg"
+                            className="bg-gradient-to-r from-kobalt-blue to-purple-600 hover:from-kobalt-blue/90 hover:to-purple-700 text-white shadow-lg shadow-kobalt-blue/25"
                         >
-                            {isAnalyzing ? (
+                            {isAnalyzing ? 'Analyzing Documents...' : (
                                 <>
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                    Analyzing Documents...
-                                </>
-                            ) : (
-                                <>
-                                    <Zap className="w-5 h-5" />
+                                    <Zap className="w-5 h-5 mr-2" />
                                     Run AI Assessment
-                                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                                    <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
                                 </>
                             )}
-                        </button>
+                        </KobaltButton>
                     </div>
 
                     {runError && (
-                        <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-200">
+                        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800">
                             <p className="font-semibold mb-1">Unable to run AI assessment</p>
-                            <p className="text-sm text-red-200/90">{runError}</p>
+                            <p className="text-sm text-red-600">{runError}</p>
                         </div>
                     )}
 
                     {/* Analysis Progress */}
                     {isAnalyzing && (
-                        <div className="mt-8 p-6 bg-gray-900/80 backdrop-blur border border-gray-800 rounded-2xl">
+                        <div className="mt-8 p-6 bg-kobalt-blue/5 border border-kobalt-blue/10 rounded-2xl">
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="relative">
-                                    <div className="w-12 h-12 rounded-full border-4 border-purple-500/30 border-t-purple-500 animate-spin" />
-                                    <Sparkles className="w-5 h-5 text-purple-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                                    <div className="w-12 h-12 rounded-full border-4 border-kobalt-blue/30 border-t-kobalt-blue animate-spin" />
+                                    <Sparkles className="w-5 h-5 text-kobalt-blue absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
                                 </div>
                                 <div>
-                                    <p className="font-semibold text-white">AI Assessment in Progress</p>
-                                    <p className="text-sm text-gray-400">Analyzing documents with 17 specialized agents...</p>
+                                    <p className="font-semibold text-kobalt-black">AI Assessment in Progress</p>
+                                    <p className="text-sm text-kobalt-gray">Analyzing documents with 17 specialized agents...</p>
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 {['Extracting KPIs', 'Peer Benchmarking', 'Credibility Analysis', 'Regulatory Check'].map((task, i) => (
                                     <div key={task} className="flex items-center gap-3 text-sm">
-                                        <div className={`w-2 h-2 rounded-full ${i < 2 ? 'bg-green-400' : 'bg-gray-600 animate-pulse'}`} />
-                                        <span className={i < 2 ? 'text-gray-300' : 'text-gray-500'}>{task}</span>
-                                        {i < 2 && <CheckCircle className="w-4 h-4 text-green-400" />}
+                                        <div className={`w-2 h-2 rounded-full ${i < 2 ? 'bg-green-500' : 'bg-kobalt-gray-light animate-pulse'}`} />
+                                        <span className={i < 2 ? 'text-kobalt-black' : 'text-kobalt-gray'}>{task}</span>
+                                        {i < 2 && <CheckCircle className="w-4 h-4 text-green-500" />}
                                     </div>
                                 ))}
                             </div>
                         </div>
                     )}
-                </div>
+                </KobaltCard>
             </div>
         )
     }
@@ -1019,43 +986,30 @@ export default function KPIBenchmarking() {
         const result = evaluationResult
         const memo = result.detailed_report
         const recommendation = result.final_decision?.recommendation || result.executive_summary.overall_recommendation
-        const isApproved = recommendation === 'APPROVE' || recommendation === 'CONDITIONAL_APPROVAL'
-
-        // Get target ambition from various possible sources
-        const targetAmbition = result.target_assessment?.ambition_classification
-            || result.peer_benchmark?.ambition_level
-            || result.executive_summary?.ambition_level
-            || (result.peer_benchmark?.company_percentile >= 75 ? 'HIGHLY_AMBITIOUS'
-                : result.peer_benchmark?.company_percentile >= 50 ? 'AMBITIOUS'
-                    : result.peer_benchmark?.company_percentile >= 25 ? 'MARKET_ALIGNED'
-                        : 'BELOW_MARKET')
+        const ambitionLevel = result.peer_benchmarking?.ambition_classification?.level || 'MODERATE'
 
         const getRecommendationStyle = () => {
             switch (recommendation) {
-                case 'APPROVE': return { bg: 'from-green-500 to-emerald-500', text: 'text-green-400', icon: CheckCircle2 }
-                case 'CONDITIONAL_APPROVAL': return { bg: 'from-amber-500 to-yellow-500', text: 'text-amber-400', icon: AlertCircle }
-                case 'REJECT': return { bg: 'from-red-500 to-rose-500', text: 'text-red-400', icon: XCircle }
-                default: return { bg: 'from-gray-500 to-gray-600', text: 'text-gray-400', icon: AlertTriangle }
+                case 'APPROVE': return { bg: 'bg-gradient-to-br from-green-600 to-emerald-700', border: 'border-green-600/50', text: 'text-white', icon: CheckCircle2, iconBg: 'bg-white/20', label: 'APPROVAL' }
+                case 'CONDITIONAL_APPROVAL': return { bg: 'bg-gradient-to-br from-amber-700 via-amber-800 to-amber-900', border: 'border-amber-700/50', text: 'text-white', icon: AlertCircle, iconBg: 'bg-amber-900/40', label: 'CONDITIONAL APPROVAL' }
+                case 'REJECT': return { bg: 'bg-gradient-to-br from-red-600 to-red-800', border: 'border-red-600/50', text: 'text-white', icon: XCircle, iconBg: 'bg-white/20', label: 'REJECT' }
+                default: return { bg: 'bg-gradient-to-br from-gray-600 to-gray-800', border: 'border-gray-600/50', text: 'text-white', icon: AlertTriangle, iconBg: 'bg-white/20', label: 'UNDER REVIEW' }
             }
         }
-
+        
         const getAmbitionStyle = () => {
-            const ambition = targetAmbition?.toUpperCase()?.replace(/[_\s]/g, '_')
-            if (ambition?.includes('HIGHLY') || ambition?.includes('SCIENCE')) {
-                return { bg: 'from-emerald-600 to-teal-600', text: 'text-emerald-400', icon: Award }
-            } else if (ambition?.includes('AMBITIOUS') || ambition?.includes('ABOVE')) {
-                return { bg: 'from-blue-500 to-cyan-500', text: 'text-blue-400', icon: TrendingUp }
-            } else if (ambition?.includes('MARKET') || ambition?.includes('ALIGNED')) {
-                return { bg: 'from-amber-500 to-orange-500', text: 'text-amber-400', icon: Target }
-            } else {
-                return { bg: 'from-red-500 to-rose-500', text: 'text-red-400', icon: TrendingDown }
+            switch (ambitionLevel) {
+                case 'SCIENCE_ALIGNED':
+                case 'AMBITIOUS': return { bg: 'bg-gradient-to-br from-blue-700 via-blue-800 to-blue-900', border: 'border-blue-700/50', text: 'text-white', label: 'AMBITIOUS' }
+                case 'ABOVE_MARKET': return { bg: 'bg-gradient-to-br from-blue-600 to-blue-800', border: 'border-blue-600/50', text: 'text-white', label: 'ABOVE MARKET' }
+                case 'MODERATE': return { bg: 'bg-gradient-to-br from-amber-600 to-orange-700', border: 'border-amber-600/50', text: 'text-white', label: 'MODERATE' }
+                default: return { bg: 'bg-gradient-to-br from-gray-600 to-gray-800', border: 'border-gray-600/50', text: 'text-white', label: ambitionLevel }
             }
         }
-
+        
         const recStyle = getRecommendationStyle()
+        const ambStyle = getAmbitionStyle()
         const RecIcon = recStyle.icon
-        const ambitionStyle = getAmbitionStyle()
-        const AmbitionIcon = ambitionStyle.icon
 
         const fallbackCompanyPct = Number.isFinite(computedReductionPct) ? computedReductionPct : 5
         const peerChartData = (result.visuals?.peer_comparison?.labels || ['Company', 'Median', 'Top 25%']).map((label, i) => ({
@@ -1068,388 +1022,372 @@ export default function KPIBenchmarking() {
             emissions: result.visuals?.emissions_trajectory?.data?.[i] || [100, 75, 50][i]
         }))
 
-        const figures = memo?.figures || []
         const sections = memo?.sections || []
-        const activeSection = sections.find(s => s.id === activeSectionId) || sections[0]
-
-        const gaugeFigure = figures.find(f => f.type === 'gauge')
-        const gaugeValue = typeof gaugeFigure?.data?.value === 'number' ? gaugeFigure?.data?.value : undefined
 
         return (
-            <div className="min-h-screen bg-[#0a0f1a] text-white">
-                <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                    <div className={`absolute top-0 left-0 w-full h-96 bg-gradient-to-b ${isApproved ? 'from-emerald-500/5' : 'from-amber-500/5'} to-transparent`} />
-                </div>
-
-                <div className="relative z-10 max-w-6xl mx-auto px-6 py-8">
+            <div className="min-h-screen pb-20 animate-fade-in">
+                <div className="max-w-7xl mx-auto">
                     {/* Report Header */}
-                    <div className="flex items-start justify-between mb-8">
+                    <div className="flex items-start justify-between mb-6">
                         <div>
-                            <p className="text-gray-500 text-sm mb-2">Assessment Report | {result.report_header.analysis_date}</p>
-                            <h1 className="text-4xl font-bold mb-2">{result.report_header.company_name}</h1>
-                            <p className="text-gray-400">{result.report_header.deal_details.loan_type}</p>
+                            <p className="text-kobalt-gray text-sm mb-2">Assessment Report | {result.report_header.analysis_date}</p>
+                            <h1 className="text-5xl font-bold mb-2 text-kobalt-black">{result.report_header.company_name}</h1>
+                            <p className="text-kobalt-gray-dark">{result.report_header.deal_details.loan_type}</p>
                         </div>
-                        <button
+                        <KobaltButton
                             onClick={() => pdfMutation.mutate()}
                             disabled={pdfMutation.isPending}
-                            className="flex items-center gap-2 px-5 py-3 bg-gray-800 hover:bg-gray-700 disabled:opacity-60 rounded-xl transition-colors"
+                            variant="outline"
+                            className="flex items-center gap-2"
                         >
                             {pdfMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                             Export PDF
-                        </button>
+                        </KobaltButton>
                     </div>
 
-                    {/* Recommendation Hero - Two Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                    {/* Recommendation & Ambition Cards */}
+                    <div className="grid grid-cols-2 gap-6 mb-8">
                         {/* Credit Recommendation Card */}
-                        <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${recStyle.bg} p-6`}>
-                            <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-                            <div className="relative z-10">
-                                <div className="flex items-center gap-4 mb-3">
-                                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur">
-                                        <RecIcon className="w-8 h-8 text-white" />
-                                    </div>
-                                    <div>
-                                        <p className="text-white/80 text-xs font-medium uppercase tracking-wider mb-1">Credit Recommendation</p>
-                                        <p className="text-2xl font-bold text-white">
-                                            {recommendation?.replace(/_/g, ' ') || 'UNDER REVIEW'}
-                                        </p>
-                                    </div>
+                        <KobaltCard className={`relative overflow-hidden ${recStyle.bg} border-2 ${recStyle.border}`}>
+                            <div className="flex items-center gap-6 mb-6">
+                                <div className={`p-4 rounded-2xl ${recStyle.iconBg}`}>
+                                    <RecIcon className="w-10 h-10 text-white" />
                                 </div>
-                                <div className="mt-3 pt-3 border-t border-white/20">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-white/70 text-sm">Confidence Level</span>
-                                        <span className="text-white font-semibold">{result.final_decision?.confidence || 'MEDIUM'}</span>
-                                    </div>
+                                <div>
+                                    <p className="text-white/90 text-sm font-semibold mb-1 tracking-wide">CREDIT RECOMMENDATION</p>
+                                    <p className="text-3xl font-bold text-white">
+                                        {recStyle.label}
+                                    </p>
                                 </div>
                             </div>
-                        </div>
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-white/80 font-medium">Confidence Level</span>
+                                <span className="text-2xl font-bold text-white">{result.final_decision?.confidence || 'MEDIUM'}</span>
+                            </div>
+                        </KobaltCard>
 
                         {/* Target Ambition Card */}
-                        <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${ambitionStyle.bg} p-6`}>
-                            <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-                            <div className="relative z-10">
-                                <div className="flex items-center gap-4 mb-3">
-                                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur">
-                                        <AmbitionIcon className="w-8 h-8 text-white" />
-                                    </div>
-                                    <div>
-                                        <p className="text-white/80 text-xs font-medium uppercase tracking-wider mb-1">Target Ambition</p>
-                                        <p className="text-2xl font-bold text-white">
-                                            {targetAmbition?.replace(/_/g, ' ') || 'ASSESSING'}
-                                        </p>
-                                    </div>
+                        <KobaltCard className={`relative overflow-hidden ${ambStyle.bg} border-2 ${ambStyle.border}`}>
+                            <div className="flex items-center gap-6 mb-6">
+                                <div className="p-4 rounded-2xl bg-white/20">
+                                    <TrendingUp className="w-10 h-10 text-white" />
                                 </div>
-                                <div className="mt-3 pt-3 border-t border-white/20">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-white/70 text-sm">Peer Percentile</span>
-                                        <span className="text-white font-semibold">
-                                            {result.peer_benchmark?.company_percentile
-                                                ? `${Math.round(result.peer_benchmark.company_percentile)}th`
-                                                : 'N/A'}
-                                        </span>
-                                    </div>
+                                <div>
+                                    <p className="text-white/90 text-sm font-semibold mb-1 tracking-wide">TARGET AMBITION</p>
+                                    <p className="text-3xl font-bold text-white">
+                                        {ambStyle.label}
+                                    </p>
                                 </div>
                             </div>
-                        </div>
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-white/80 font-medium">Peer Percentile</span>
+                                <span className="text-2xl font-bold text-white">
+                                    {result.peer_benchmarking?.company_position?.percentile_rank 
+                                        ? `${Math.round(result.peer_benchmarking.company_position.percentile_rank)}th`
+                                        : '5th'}
+                                </span>
+                            </div>
+                        </KobaltCard>
                     </div>
 
-                    {/* Executive Summary */}
-                    {result.executive_summary.ai_narrative && (
-                        <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6 mb-8">
-                            <div className="flex items-center gap-3 mb-4">
-                                <Sparkles className="w-5 h-5 text-purple-400" />
-                                <h2 className="text-lg font-semibold">Detailed Assessment Report</h2>
+                    {/* Detailed Assessment Report Section */}
+                    <KobaltCard className="mb-8">
+                        <div className="flex items-center gap-3 mb-6">
+                            <Sparkles className="w-6 h-6 text-kobalt-blue" />
+                            <h2 className="text-2xl font-bold text-kobalt-black">Detailed Assessment Report</h2>
+                        </div>
+                        {result.executive_summary.ai_narrative && (
+                            <div className="prose prose-slate prose-lg max-w-none">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {result.executive_summary.ai_narrative}
+                                </ReactMarkdown>
                             </div>
-                            <div className="text-gray-300 leading-relaxed prose prose-invert prose-sm max-w-none">
-                                <ReactMarkdown>{result.executive_summary.ai_narrative}</ReactMarkdown>
+                        )}
+                    </KobaltCard>
+
+                    {/* Ask About This Report - Interactive Q&A */}
+                    <KobaltCard className="mb-8">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-3 bg-purple-500/10 rounded-xl">
+                                <FileText className="w-5 h-5 text-purple-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-kobalt-black">Ask about this report</h3>
+                                <p className="text-sm text-kobalt-gray">Questions are answered using your uploaded documents + the saved report.</p>
                             </div>
                         </div>
-                    )}
+                        
+                        <div className="bg-kobalt-gray rounded-xl p-4 mb-4">
+                            <p className="text-kobalt-gray-dark italic">Try: "Why did the report recommend CONDITIONAL_APPROVAL?"</p>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <input
+                                type="text"
+                                placeholder="Ask a question about this report..."
+                                className="flex-1 px-6 py-4 bg-white border border-kobalt-border rounded-xl text-kobalt-black placeholder-kobalt-gray focus:border-kobalt-blue focus:ring-2 focus:ring-kobalt-blue/20 transition-all outline-none"
+                            />
+                            <KobaltButton className="px-8 py-4 flex items-center gap-2">
+                                <Sparkles className="w-5 h-5" />
+                                Send
+                            </KobaltButton>
+                        </div>
+                    </KobaltCard>
 
                     {/* Report View Toggle */}
                     {memo && (
-                        <div className="flex items-center gap-2 mb-6">
+                        <div className="flex items-center gap-3 mb-8">
                             <button
                                 onClick={() => setReportView('memo')}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${reportView === 'memo' ? 'bg-emerald-500 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                                    }`}
+                                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${
+                                    reportView === 'memo' 
+                                        ? 'bg-kobalt-blue text-white shadow-md' 
+                                        : 'bg-white border border-kobalt-border text-kobalt-gray-dark hover:bg-kobalt-gray'
+                                }`}
                             >
                                 Credit Memo
                             </button>
                             <button
                                 onClick={() => setReportView('highlights')}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${reportView === 'highlights' ? 'bg-emerald-500 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                                    }`}
+                                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${
+                                    reportView === 'highlights' 
+                                        ? 'bg-kobalt-blue text-white shadow-md' 
+                                        : 'bg-white border border-kobalt-border text-kobalt-gray-dark hover:bg-kobalt-gray'
+                                }`}
                             >
                                 Highlights
                             </button>
-                            <div className="ml-auto text-xs text-gray-500">
-                                {memo.meta?.prepared_for ? `${memo.meta.prepared_for} • ` : ''}{memo.meta?.as_of_date || result.report_header.analysis_date}
+                            <div className="ml-auto text-sm text-kobalt-gray">
+                                Credit Committee • {memo.meta?.as_of_date || result.report_header.analysis_date}
                             </div>
                         </div>
                     )}
 
-                    {/* Report Q&A Chat */}
-                    {currentEvaluationId && (
-                        <div className="mb-8">
-                            <ReportChat evaluationId={currentEvaluationId} />
-                        </div>
-                    )}
+                    {reportView === 'memo' && memo ? (
+                        <div className="grid grid-cols-12 gap-8">
+                            {/* Navigation Sidebar */}
+                            <div className="col-span-3">
+                                <div className="sticky top-8 space-y-6">
+                                    {/* CONTENTS */}
+                                    <div>
+                                        <h3 className="text-xs font-semibold text-kobalt-gray uppercase tracking-wider mb-3 px-4">CONTENTS</h3>
+                                        <div className="space-y-1">
+                                            {(sections || []).map((section) => (
+                                                <button
+                                                    key={section.id}
+                                                    onClick={() => {
+                                                        setActiveSectionId(section.id)
+                                                        // Smooth scroll to section
+                                                        const element = document.getElementById(section.id)
+                                                        if (element) {
+                                                            element.scrollIntoView({ 
+                                                                behavior: 'smooth', 
+                                                                block: 'start',
+                                                                inline: 'nearest'
+                                                            })
+                                                        }
+                                                    }}
+                                                    className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all ${
+                                                        activeSectionId === section.id
+                                                            ? 'bg-kobalt-blue text-white font-medium shadow-sm'
+                                                            : 'text-kobalt-gray-dark hover:bg-kobalt-gray'
+                                                    }`}
+                                                >
+                                                    {section.title}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
 
-                    {/* Credit Memo (Detailed) */}
-                    {memo && reportView === 'memo' && (
-                        <div className="grid grid-cols-12 gap-6 mb-8">
-                            <aside className="col-span-4 bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-5">
-                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Contents</p>
-                                <div className="space-y-1">
-                                    {(sections || []).map((s) => (
-                                        <button
-                                            key={s.id}
-                                            onClick={() => setActiveSectionId(s.id)}
-                                            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${activeSectionId === s.id ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-800/60'
-                                                }`}
-                                        >
-                                            {s.title}
-                                        </button>
-                                    ))}
-                                    <div className="pt-3 mt-3 border-t border-gray-800">
-                                        <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Figures</p>
-                                        {(figures || []).map((f) => (
-                                            <div key={f.id} className="text-sm text-gray-400 py-1">{f.title}</div>
-                                        ))}
+                                    {/* FIGURES */}
+                                    <div>
+                                        <h3 className="text-xs font-semibold text-kobalt-gray uppercase tracking-wider mb-3 px-4">FIGURES</h3>
+                                        <div className="space-y-1">
+                                            <button className="w-full text-left px-4 py-3 text-sm text-kobalt-gray-dark hover:bg-kobalt-gray rounded-xl transition-all">
+                                                Peer Benchmarking (Reduction Target vs Peers)
+                                            </button>
+                                            <button className="w-full text-left px-4 py-3 text-sm text-kobalt-gray-dark hover:bg-kobalt-gray rounded-xl transition-all">
+                                                Emissions Trajectory (Indexed to Baseline)
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
-                            </aside>
+                            </div>
 
-                            <section className="col-span-8 space-y-6">
-                                {gaugeValue !== undefined && (
-                                    <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
-                                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                                            <Shield className="w-5 h-5 text-purple-400" />
-                                            Credibility Score (Indicative)
-                                        </h3>
-                                        <div className="h-56">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <RadialBarChart
-                                                    innerRadius="70%"
-                                                    outerRadius="100%"
-                                                    data={[{ name: 'Credibility', value: gaugeValue }]}
-                                                    startAngle={180}
-                                                    endAngle={0}
-                                                >
-                                                    <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                                                    <RadialBar dataKey="value" cornerRadius={10} fill="#A855F7" />
-                                                </RadialBarChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                        <p className="text-center text-2xl font-bold text-white -mt-6">{Math.round(gaugeValue)} / 100</p>
-                                        <p className="text-center text-sm text-gray-400">{gaugeFigure?.data?.label || result.achievability_assessment?.credibility_level || 'MEDIUM'}</p>
-                                    </div>
-                                )}
-
-                                {activeSection && (
-                                    <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
-                                        <h2 className="text-xl font-semibold mb-3">{activeSection.title}</h2>
-                                        {activeSection.markdown && (
-                                            <div className="text-gray-300 leading-relaxed mb-4 prose prose-invert prose-sm max-w-none prose-headings:text-white prose-headings:font-semibold prose-h3:text-base prose-strong:text-white prose-p:my-2">
-                                                <ReactMarkdown>{activeSection.markdown}</ReactMarkdown>
+                            {/* Main Content Area */}
+                            <div className="col-span-9 space-y-6">
+                                {(sections || []).map((section) => (
+                                    <div 
+                                        key={section.id} 
+                                        id={section.id} 
+                                        className="scroll-mt-24"
+                                        style={{ scrollMarginTop: '6rem' }}
+                                    >
+                                        <KobaltCard>
+                                            <h3 className="text-2xl font-bold text-kobalt-black mb-6 pb-4 border-b border-kobalt-border">
+                                                {section.title}
+                                            </h3>
+                                            <div className="prose prose-slate prose-lg max-w-none">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {section.markdown || ''}
+                                                </ReactMarkdown>
                                             </div>
-                                        )}
-                                        {(activeSection.bullets || []).length > 0 && (
-                                            <ul className="space-y-2 text-sm text-gray-300">
-                                                {(activeSection.bullets || []).map((b, idx) => (
-                                                    <li key={idx} className="flex gap-2">
-                                                        <span className="mt-1 w-2 h-2 rounded-full bg-emerald-400/70" />
-                                                        <span>{b}</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        )}
 
-                                        {(activeSection.evidence || []).length > 0 && (
-                                            <div className="mt-5 pt-5 border-t border-gray-800">
-                                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Evidence</p>
-                                                <div className="space-y-2">
-                                                    {(activeSection.evidence || []).map((e, idx) => (
-                                                        <div key={idx} className="text-sm text-gray-400">
-                                                            <span className="text-gray-300 font-medium">{e.source}</span>
-                                                            <span className="text-gray-500"> • {e.reference}</span>
-                                                            {e.snippet ? <div className="text-gray-500 mt-1">{e.snippet}</div> : null}
+                                            {/* Section-specific visualizations */}
+                                            {section.id === 'detailed_analysis' && (
+                                                <div className="grid grid-cols-2 gap-6 mt-8 not-prose">
+                                                    {/* Peer Comparison Chart */}
+                                                    <div className="bg-kobalt-gray rounded-xl p-6 border border-kobalt-border">
+                                                        <h4 className="text-sm font-semibold text-kobalt-black mb-4 flex items-center gap-2">
+                                                            <BarChart3 className="w-4 h-4 text-emerald-600" />
+                                                            Peer Benchmarking
+                                                        </h4>
+                                                        <div className="h-48">
+                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                <BarChart data={peerChartData} layout="vertical">
+                                                                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                                                    <XAxis type="number" stroke="#6b7280" fontSize={11} unit="%" />
+                                                                    <YAxis dataKey="name" type="category" stroke="#6b7280" fontSize={11} width={80} />
+                                                                    <RechartsTooltip contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#111827' }} />
+                                                                    <Bar dataKey="value" fill="#10B981" radius={[0, 4, 4, 0]} />
+                                                                </BarChart>
+                                                            </ResponsiveContainer>
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {(memo.risk_register || []).length > 0 && (
-                                    <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
-                                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                                            <AlertTriangle className="w-5 h-5 text-red-400" />
-                                            Risk Register
-                                        </h3>
-                                        <div className="space-y-3">
-                                            {(memo.risk_register || []).slice(0, 8).map((r) => (
-                                                <div key={r.id} className="p-4 bg-gray-950/40 border border-gray-800 rounded-xl">
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <p className="font-semibold text-white">{r.id} • {r.theme}</p>
-                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${r.severity === 'HIGH' ? 'bg-red-500/20 text-red-400' : r.severity === 'LOW' ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'
-                                                            }`}>{r.severity}</span>
                                                     </div>
-                                                    <p className="text-sm text-gray-300">{r.description}</p>
-                                                    {r.mitigant ? <p className="text-sm text-gray-500 mt-2">Mitigant: {r.mitigant}</p> : null}
-                                                    {r.covenant_or_condition ? <p className="text-sm text-gray-500 mt-1">Condition/Covenant: {r.covenant_or_condition}</p> : null}
+
+                                                    {/* Trajectory Chart */}
+                                                    <div className="bg-kobalt-gray rounded-xl p-6 border border-kobalt-border">
+                                                        <h4 className="text-sm font-semibold text-kobalt-black mb-4 flex items-center gap-2">
+                                                            <TrendingDown className="w-4 h-4 text-blue-600" />
+                                                            Emissions Trajectory
+                                                        </h4>
+                                                        <div className="h-48">
+                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                <LineChart data={trajectoryData}>
+                                                                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                                                    <XAxis dataKey="year" stroke="#6b7280" fontSize={11} />
+                                                                    <YAxis stroke="#6b7280" fontSize={11} unit="%" />
+                                                                    <RechartsTooltip contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#111827' }} />
+                                                                    <Line type="monotone" dataKey="emissions" stroke="#3B82F6" strokeWidth={2} dot={{ fill: '#3B82F6', r: 4 }} />
+                                                                </LineChart>
+                                                            </ResponsiveContainer>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {(memo.recommended_terms?.monitoring_plan || []).length > 0 && (
-                                    <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
-                                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                                            Monitoring Plan
-                                        </h3>
-                                        <ul className="space-y-2 text-sm text-gray-300">
-                                            {(memo.recommended_terms?.monitoring_plan || []).map((m, idx) => (
-                                                <li key={idx} className="flex gap-2">
-                                                    <span className="mt-1 w-2 h-2 rounded-full bg-emerald-400/70" />
-                                                    <span>{m}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                            </section>
-                        </div>
-                    )}
-
-                    {(!memo || reportView === 'highlights') && (
-                        <>
-                            {/* Key Metrics Grid */}
-                            <div className="grid grid-cols-4 gap-4 mb-8">
-                                {(result.executive_summary.key_findings || []).slice(0, 4).map((finding, i) => (
-                                    <div key={i} className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-5">
-                                        <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">{finding.category}</p>
-                                        <p className={`text-2xl font-bold ${finding.assessment === 'STRONG' || finding.assessment === 'HIGH' || finding.assessment === 'COMPLIANT' ? 'text-green-400' :
-                                            finding.assessment === 'WEAK' || finding.assessment === 'LOW' ? 'text-red-400' : 'text-amber-400'
-                                            }`}>
-                                            {finding.assessment}
-                                        </p>
-                                        <p className="text-gray-500 text-sm mt-2 line-clamp-2">{finding.detail}</p>
+                                            )}
+                                        </KobaltCard>
                                     </div>
                                 ))}
                             </div>
-
-                            {/* Charts Row */}
+                        </div>
+                    ) : (
+                        // Highlights View
+                        <>
                             <div className="grid grid-cols-2 gap-6 mb-8">
                                 {/* Peer Comparison */}
-                                <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
-                                    <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                                        <BarChart3 className="w-5 h-5 text-emerald-400" />
+                                <KobaltCard>
+                                    <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-kobalt-black">
+                                        <BarChart3 className="w-5 h-5 text-emerald-600" />
                                         Peer Benchmarking
                                     </h3>
                                     <div className="h-64">
                                         <ResponsiveContainer width="100%" height="100%">
                                             <BarChart data={peerChartData} layout="vertical">
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                                                <XAxis type="number" stroke="#9CA3AF" fontSize={12} unit="%" />
-                                                <YAxis dataKey="name" type="category" stroke="#9CA3AF" fontSize={12} width={100} />
-                                                <RechartsTooltip contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px' }} />
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                                <XAxis type="number" stroke="#6b7280" fontSize={12} unit="%" />
+                                                <YAxis dataKey="name" type="category" stroke="#6b7280" fontSize={12} width={100} />
+                                                <RechartsTooltip contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#111827' }} />
                                                 <Bar dataKey="value" fill="#10B981" radius={[0, 4, 4, 0]} />
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
                                     <div className="mt-4 flex items-center justify-between text-sm">
-                                        <span className="text-gray-400">
+                                        <span className="text-kobalt-gray">
                                             {result.peer_benchmarking?.peer_statistics?.peer_count || 5} peers analyzed
                                         </span>
-                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${result.peer_benchmarking?.ambition_classification?.level === 'SCIENCE_ALIGNED' ? 'bg-green-500/20 text-green-400' :
-                                            result.peer_benchmarking?.ambition_classification?.level === 'ABOVE_MARKET' ? 'bg-blue-500/20 text-blue-400' :
-                                                'bg-amber-500/20 text-amber-400'
+                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${result.peer_benchmarking?.ambition_classification?.level === 'SCIENCE_ALIGNED' ? 'bg-green-100 text-green-700' :
+                                            result.peer_benchmarking?.ambition_classification?.level === 'ABOVE_MARKET' ? 'bg-blue-100 text-blue-700' :
+                                                'bg-amber-100 text-amber-700'
                                             }`}>
                                             {result.peer_benchmarking?.ambition_classification?.level?.replace(/_/g, ' ') || 'MODERATE'}
                                         </span>
                                     </div>
-                                </div>
+                                </KobaltCard>
 
                                 {/* Emissions Trajectory */}
-                                <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
-                                    <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                                        <TrendingDown className="w-5 h-5 text-blue-400" />
+                                <KobaltCard>
+                                    <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-kobalt-black">
+                                        <TrendingDown className="w-5 h-5 text-blue-600" />
                                         Emissions Trajectory
                                     </h3>
                                     <div className="h-64">
                                         <ResponsiveContainer width="100%" height="100%">
                                             <LineChart data={trajectoryData}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                                                <XAxis dataKey="year" stroke="#9CA3AF" fontSize={12} />
-                                                <YAxis stroke="#9CA3AF" fontSize={12} unit="%" />
-                                                <RechartsTooltip contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px' }} />
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                                <XAxis dataKey="year" stroke="#6b7280" fontSize={12} />
+                                                <YAxis stroke="#6b7280" fontSize={12} unit="%" />
+                                                <RechartsTooltip contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#111827' }} />
                                                 <Line type="monotone" dataKey="emissions" stroke="#3B82F6" strokeWidth={3} dot={{ fill: '#3B82F6', r: 6 }} />
                                             </LineChart>
                                         </ResponsiveContainer>
                                     </div>
-                                </div>
+                                </KobaltCard>
                             </div>
 
                             {/* Credibility & Compliance Row */}
                             <div className="grid grid-cols-2 gap-6 mb-8">
                                 {/* Credibility Signals */}
-                                <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
+                                <KobaltCard>
                                     <div className="flex items-center justify-between mb-6">
-                                        <h3 className="text-lg font-semibold flex items-center gap-2">
-                                            <Shield className="w-5 h-5 text-purple-400" />
+                                        <h3 className="text-lg font-semibold flex items-center gap-2 text-kobalt-black">
+                                            <Shield className="w-5 h-5 text-purple-600" />
                                             Credibility Signals
                                         </h3>
-                                        <div className={`px-3 py-1 rounded-full text-sm font-medium ${result.achievability_assessment?.credibility_level === 'HIGH' ? 'bg-green-500/20 text-green-400' :
-                                            result.achievability_assessment?.credibility_level === 'MEDIUM' ? 'bg-amber-500/20 text-amber-400' :
-                                                'bg-red-500/20 text-red-400'
+                                        <div className={`px-3 py-1 rounded-full text-sm font-medium ${result.achievability_assessment?.credibility_level === 'HIGH' ? 'bg-green-100 text-green-700' :
+                                            result.achievability_assessment?.credibility_level === 'MEDIUM' ? 'bg-amber-100 text-amber-700' :
+                                                'bg-red-100 text-red-700'
                                             }`}>
                                             {result.achievability_assessment?.credibility_level || 'MEDIUM'} Credibility
                                         </div>
                                     </div>
                                     <div className="space-y-3">
                                         {Object.entries(result.achievability_assessment?.signals || {}).slice(0, 6).map(([key, value]) => (
-                                            <div key={key} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
-                                                <span className="text-gray-300 capitalize">{key.replace(/_/g, ' ')}</span>
+                                            <div key={key} className="flex items-center justify-between py-2 border-b border-kobalt-border last:border-0">
+                                                <span className="text-kobalt-gray-dark capitalize">{key.replace(/_/g, ' ')}</span>
                                                 {value?.detected ? (
-                                                    <CheckCircle2 className="w-5 h-5 text-green-400" />
+                                                    <CheckCircle2 className="w-5 h-5 text-green-600" />
                                                 ) : (
-                                                    <XCircle className="w-5 h-5 text-gray-600" />
+                                                    <XCircle className="w-5 h-5 text-gray-400" />
                                                 )}
                                             </div>
                                         ))}
                                     </div>
-                                </div>
+                                </KobaltCard>
 
                                 {/* Regulatory Compliance */}
-                                <div className="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-6">
-                                    <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                                        <Award className="w-5 h-5 text-amber-400" />
+                                <KobaltCard>
+                                    <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-kobalt-black">
+                                        <Award className="w-5 h-5 text-amber-600" />
                                         Regulatory Compliance
                                     </h3>
                                     <div className="grid grid-cols-2 gap-4">
-                                        {Object.entries(result.regulatory_compliance?.summary || { eu_taxonomy: false, sbti: true, sllp: true }).map(([key, value]) => (
-                                            <div key={key} className={`p-4 rounded-xl ${value ? 'bg-green-500/10 border border-green-500/20' : 'bg-gray-800/50 border border-gray-700'}`}>
+                                        {Object.entries(result.regulatory_compliance?.summary || { eu_taxonomy: false, csrd: true, sbti: true, sllp: true }).map(([key, value]) => (
+                                            <div key={key} className={`p-4 rounded-xl ${value ? 'bg-green-50/50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
                                                 <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-sm font-medium text-gray-300 uppercase">{key.replace(/_/g, ' ')}</span>
+                                                    <span className="text-sm font-medium text-kobalt-gray-dark uppercase">{key.replace(/_/g, ' ')}</span>
                                                     {value ? (
-                                                        <CheckCircle2 className="w-5 h-5 text-green-400" />
+                                                        <CheckCircle2 className="w-5 h-5 text-green-600" />
                                                     ) : (
-                                                        <XCircle className="w-5 h-5 text-gray-500" />
+                                                        <XCircle className="w-5 h-5 text-gray-400" />
                                                     )}
                                                 </div>
-                                                <p className={`text-xs ${value ? 'text-green-400' : 'text-gray-500'}`}>
+                                                <p className={`text-xs ${value ? 'text-green-700' : 'text-gray-500'}`}>
                                                     {value ? 'Compliant' : 'Not Verified'}
                                                 </p>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
+                                </KobaltCard>
                             </div>
 
                             {/* Conditions & Risk Flags */}
@@ -1457,21 +1395,21 @@ export default function KPIBenchmarking() {
                                 <div className="grid grid-cols-2 gap-6 mb-8">
                                     {/* Conditions */}
                                     {(result.final_decision?.conditions?.length || 0) > 0 && (
-                                        <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-6">
-                                            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-amber-400">
+                                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 shadow-sm">
+                                            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-amber-700">
                                                 <AlertCircle className="w-5 h-5" />
                                                 Conditions for Approval
                                             </h3>
                                             <div className="space-y-3">
                                                 {(result.final_decision?.conditions || []).map((cond, i) => (
-                                                    <div key={i} className="flex items-start gap-3 p-3 bg-gray-900/50 rounded-xl">
-                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${cond.priority === 'HIGH' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'
+                                                    <div key={i} className="flex items-start gap-3 p-3 bg-white border border-amber-100 rounded-xl">
+                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${cond.priority === 'HIGH' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
                                                             }`}>
                                                             {cond.priority}
                                                         </span>
                                                         <div>
-                                                            <p className="font-medium text-white">{cond.condition}</p>
-                                                            <p className="text-sm text-gray-400">{cond.detail}</p>
+                                                            <p className="font-medium text-kobalt-black">{cond.condition}</p>
+                                                            <p className="text-sm text-kobalt-gray">{cond.detail}</p>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -1481,20 +1419,20 @@ export default function KPIBenchmarking() {
 
                                     {/* Risk Flags */}
                                     {(result.risk_flags?.length || 0) > 0 && (
-                                        <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6">
-                                            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-red-400">
+                                        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 shadow-sm">
+                                            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-red-700">
                                                 <AlertTriangle className="w-5 h-5" />
                                                 Risk Flags
                                             </h3>
                                             <div className="space-y-3">
                                                 {(result.risk_flags || []).map((flag, i) => (
-                                                    <div key={i} className="p-3 bg-gray-900/50 rounded-xl">
+                                                    <div key={i} className="p-3 bg-white border border-red-100 rounded-xl">
                                                         <div className="flex items-center gap-2 mb-1">
-                                                            <span className={`w-2 h-2 rounded-full ${flag.severity === 'HIGH' ? 'bg-red-400' : 'bg-amber-400'
+                                                            <span className={`w-2 h-2 rounded-full ${flag.severity === 'HIGH' ? 'bg-red-500' : 'bg-amber-500'
                                                                 }`} />
-                                                            <p className="font-medium text-white">{flag.issue}</p>
+                                                            <p className="font-medium text-kobalt-black">{flag.issue}</p>
                                                         </div>
-                                                        <p className="text-sm text-gray-400 ml-4">{flag.recommendation}</p>
+                                                        <p className="text-sm text-kobalt-gray ml-4">{flag.recommendation}</p>
                                                     </div>
                                                 ))}
                                             </div>
@@ -1506,27 +1444,76 @@ export default function KPIBenchmarking() {
                         </>
                     )}
 
+                    {/* Risk Register Section */}
+                    {result.risk_flags && result.risk_flags.length > 0 && (
+                        <KobaltCard className="mb-8 border-red-200">
+                            <div className="flex items-center gap-3 mb-6">
+                                <AlertTriangle className="w-6 h-6 text-red-600" />
+                                <h2 className="text-2xl font-bold text-kobalt-black">Risk Register</h2>
+                            </div>
+                            <div className="space-y-4">
+                                {result.risk_flags.map((risk, idx) => (
+                                    <div key={idx} className="p-6 bg-kobalt-gray rounded-xl border border-kobalt-border">
+                                        <div className="flex items-start justify-between mb-3">
+                                            <h3 className="text-lg font-bold text-kobalt-black">R{idx + 1} • {risk.category}</h3>
+                                            <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${
+                                                risk.severity === 'HIGH' ? 'bg-red-100 text-red-700 border border-red-200' :
+                                                risk.severity === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                                                'bg-green-100 text-green-700 border border-green-200'
+                                            }`}>
+                                                {risk.severity}
+                                            </span>
+                                        </div>
+                                        <p className="text-kobalt-gray-dark mb-3">{risk.issue}</p>
+                                        <div className="text-sm space-y-2">
+                                            <p className="text-kobalt-gray-dark"><span className="text-kobalt-gray font-medium">Mitigant:</span> {risk.recommendation}</p>
+                                            <p className="text-kobalt-gray-dark"><span className="text-kobalt-gray font-medium">Condition/Covenant:</span> Quarterly sustainability reports</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </KobaltCard>
+                    )}
+
+                    {/* Monitoring Plan */}
+                    {result.recommended_terms?.monitoring_plan && result.recommended_terms.monitoring_plan.length > 0 && (
+                        <KobaltCard className="mb-8 border-green-200">
+                            <div className="flex items-center gap-3 mb-6">
+                                <CheckCircle className="w-6 h-6 text-green-600" />
+                                <h2 className="text-2xl font-bold text-kobalt-black">Monitoring Plan</h2>
+                            </div>
+                            <div className="space-y-3">
+                                {result.recommended_terms.monitoring_plan.map((item, idx) => (
+                                    <div key={idx} className="flex items-center gap-3 text-kobalt-gray-dark">
+                                        <div className="w-2 h-2 rounded-full bg-green-600"></div>
+                                        <span>{item}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </KobaltCard>
+                    )}
+
                     {/* Action Buttons */}
-                    <div className="flex items-center justify-between pt-6 border-t border-gray-800">
-                        <button
-                            onClick={startNewAssessment}
-                            className="px-6 py-3 text-gray-400 hover:text-white transition-colors"
+                    <div className="flex items-center justify-between pt-8 border-t border-kobalt-border">
+                        <KobaltButton
+                            variant="ghost"
+                            onClick={() => { setStep(1); setEvaluationResult(null); setUploadedDocs([]); setCurrentEvaluationId(null) }}
                         >
                             Start New Assessment
-                        </button>
+                        </KobaltButton>
                         <div className="flex gap-4">
-                            <button className="flex items-center gap-2 px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors">
-                                <ExternalLink className="w-5 h-5" />
+                            <KobaltButton variant="outline">
+                                <ExternalLink className="w-4 h-4 mr-2" />
                                 Share Report
-                            </button>
-                            <button
+                            </KobaltButton>
+                            <KobaltButton
                                 onClick={() => pdfMutation.mutate()}
                                 disabled={pdfMutation.isPending}
-                                className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 rounded-xl font-semibold transition-colors"
+                                isLoading={pdfMutation.isPending}
                             >
-                                {pdfMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+                                <Download className="w-4 h-4 mr-2" />
                                 Download Full Report
-                            </button>
+                            </KobaltButton>
                         </div>
                     </div>
                 </div>
@@ -1536,8 +1523,8 @@ export default function KPIBenchmarking() {
 
     // Fallback
     return (
-        <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center">
-            <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+        <div className="min-h-screen bg-white flex items-center justify-center">
+            <Loader2 className="w-8 h-8 text-kobalt-blue animate-spin" />
         </div>
     )
 }

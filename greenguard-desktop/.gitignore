@@ -1,0 +1,64 @@
+# ==========================
+# Dependencies
+# ==========================
+node_modules/
+.pnp/
+.pnp.js
+
+# ==========================
+# Build & Production
+# ==========================
+dist/
+dist-ssr/
+*.local
+
+# ==========================
+# Environment
+# ==========================
+.env
+.env.local
+.env.*.local
+
+# ==========================
+# Logs
+# ==========================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# ==========================
+# Editor & IDE
+# ==========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==========================
+# OS Files
+# ==========================
+.DS_Store
+Thumbs.db
+
+# ==========================
+# TypeScript
+# ==========================
+*.tsbuildinfo
+
+# ==========================
+# Tauri (Rust)
+# ==========================
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/gen/
+src-tauri/icons/
+*.pdb
+
+# ==========================
+# Testing
+# ==========================
+coverage/
+.nyc_output/

@@ -56,8 +56,19 @@ export default {
                     DEFAULT: "hsl(38 92% 50%)",
                     foreground: "hsl(0 0% 100%)",
                 },
+                kobalt: {
+                    blue: "#1D4EDE",
+                    black: "#1A1C1E",
+                    gray: "#F7F7F5",
+                    border: "#E5E5E5",
+                    white: "#FFFFFF",
+                    "gray-dark": "#64748B", // Slate-500 for secondary text
+                },
             },
             borderRadius: {
+                xl: "0.75rem",
+                "2xl": "1.25rem",
+                "3xl": "1.5rem",
                 lg: "var(--radius)",
                 md: "calc(var(--radius) - 2px)",
                 sm: "calc(var(--radius) - 4px)",
@@ -83,5 +94,5 @@ export default {
             },
         },
     },
-    plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+    plugins: [require("tailwindcss-animate")],
 }

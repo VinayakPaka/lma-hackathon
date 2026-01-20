@@ -3,6 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { uploadApi, aiEsgApi } from '@/lib/api'
 import FilePicker from '@/components/FilePicker'
 import { CheckCircle, FileText, Loader2, Sparkles, Brain, Zap, AlertTriangle } from 'lucide-react'
+import { KobaltCard } from '@/components/ui/KobaltCard'
+import { KobaltButton } from '@/components/ui/KobaltButton'
 
 type UploadStep = 'upload' | 'processing' | 'analyzing' | 'preview' | 'complete'
 
@@ -89,25 +91,27 @@ export default function Upload() {
     }
 
     const getScoreColor = (score: number) => {
-        if (score >= 75) return 'text-green-500'
-        if (score >= 50) return 'text-yellow-500'
-        return 'text-red-500'
+        if (score >= 75) return 'text-green-600'
+        if (score >= 50) return 'text-yellow-600'
+        return 'text-red-600'
     }
 
     const getSeverityColor = (severity: string) => {
-        if (severity === 'high') return 'bg-red-500/10 text-red-500 border-red-500/20'
-        if (severity === 'medium') return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
-        return 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+        if (severity === 'high') return 'bg-red-50 text-red-700 border-red-100'
+        if (severity === 'medium') return 'bg-yellow-50 text-yellow-700 border-yellow-100'
+        return 'bg-blue-50 text-blue-700 border-blue-100'
     }
 
     return (
-        <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+        <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-12">
             <div>
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <Brain className="w-7 h-7 text-primary" />
+                <h1 className="text-3xl font-bold text-kobalt-black flex items-center gap-3">
+                    <div className="p-2 bg-kobalt-blue/10 rounded-xl">
+                        <Brain className="w-8 h-8 text-kobalt-blue" />
+                    </div>
                     AI-Powered ESG Analysis
                 </h1>
-                <p className="text-muted-foreground">Upload documents for intelligent ESG analysis using AI</p>
+                <p className="text-kobalt-gray-dark mt-2 text-lg">Upload documents for intelligent ESG analysis using AI</p>
             </div>
 
             {/* Progress Steps */}
@@ -126,15 +130,15 @@ export default function Upload() {
                     const Icon = s.icon
                     return (
                         <div key={s.key} className="flex items-center gap-2">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isCurrent ? 'bg-primary text-primary-foreground ring-2 ring-primary ring-offset-2 ring-offset-background' :
-                                isActive ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${isCurrent ? 'bg-kobalt-blue text-white shadow-lg shadow-kobalt-blue/20 scale-110' :
+                                isActive ? 'bg-kobalt-blue/10 text-kobalt-blue' : 'bg-white border border-[#E5E5E5] text-kobalt-gray-dark'
                                 }`}>
-                                <Icon className={`w-4 h-4 ${isCurrent && (step === 'processing' || step === 'analyzing') ? 'animate-spin' : ''}`} />
+                                <Icon className={`w-5 h-5 ${isCurrent && (step === 'processing' || step === 'analyzing') ? 'animate-spin' : ''}`} />
                             </div>
-                            <span className={`text-sm hidden sm:inline ${isActive ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                            <span className={`text-sm hidden sm:inline transition-colors duration-200 ${isActive ? 'text-kobalt-black font-semibold' : 'text-kobalt-gray-dark'}`}>
                                 {s.label}
                             </span>
-                            {index < 4 && <div className={`w-4 sm:w-8 h-px ${isActive ? 'bg-primary' : 'bg-border'}`} />}
+                            {index < 4 && <div className={`w-4 sm:w-12 h-0.5 transition-colors duration-300 ${isActive ? 'bg-kobalt-blue' : 'bg-[#E5E5E5]'}`} />}
                         </div>
                     )
                 })}
@@ -142,43 +146,43 @@ export default function Upload() {
 
             {/* Error Display */}
             {error && (
-                <div className="p-4 bg-destructive/10 text-destructive rounded-lg flex items-center gap-3">
+                <div className="p-4 bg-red-50 text-red-600 rounded-xl border border-red-100 flex items-center gap-3 shadow-sm">
                     <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-                    <span>{error}</span>
+                    <span className="font-medium">{error}</span>
                 </div>
             )}
 
             {/* Step Content */}
-            <div className="bg-card rounded-xl p-6 border border-border">
+            <KobaltCard padding="lg" className="min-h-[400px]">
                 {step === 'upload' && (
                     <FilePicker onFileSelect={handleFileSelect} isUploading={uploadMutation.isPending} />
                 )}
 
                 {(step === 'processing' || step === 'analyzing') && (
-                    <div className="text-center py-12">
-                        <div className="relative w-20 h-20 mx-auto mb-6">
-                            <div className="absolute inset-0 rounded-full border-4 border-primary/20"></div>
-                            <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+                    <div className="text-center py-20">
+                        <div className="relative w-24 h-24 mx-auto mb-8">
+                            <div className="absolute inset-0 rounded-full border-4 border-kobalt-blue/10"></div>
+                            <div className="absolute inset-0 rounded-full border-4 border-kobalt-blue border-t-transparent animate-spin"></div>
                             <div className="absolute inset-0 flex items-center justify-center">
                                 {step === 'processing' ? (
-                                    <Zap className="w-8 h-8 text-primary" />
+                                    <Zap className="w-10 h-10 text-kobalt-blue" />
                                 ) : (
-                                    <Brain className="w-8 h-8 text-primary" />
+                                    <Brain className="w-10 h-10 text-kobalt-blue" />
                                 )}
                             </div>
                         </div>
-                        <p className="text-lg font-medium">
+                        <h3 className="text-xl font-bold text-kobalt-black mb-2">
                             {step === 'processing' ? 'Processing Document...' : 'AI Analysis in Progress...'}
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-2">
+                        </h3>
+                        <p className="text-kobalt-gray-dark">
                             {processingMessage}
                         </p>
                         {step === 'analyzing' && (
-                            <div className="mt-4 flex justify-center gap-2">
-                                <span className="px-3 py-1 bg-primary/10 text-primary text-xs rounded-full">
+                            <div className="mt-6 flex justify-center gap-3">
+                                <span className="px-4 py-1.5 bg-kobalt-blue/5 text-kobalt-blue text-xs font-semibold rounded-full border border-kobalt-blue/10">
                                     Perplexity AI
                                 </span>
-                                <span className="px-3 py-1 bg-primary/10 text-primary text-xs rounded-full">
+                                <span className="px-4 py-1.5 bg-kobalt-blue/5 text-kobalt-blue text-xs font-semibold rounded-full border border-kobalt-blue/10">
                                     RAG Enabled
                                 </span>
                             </div>
@@ -187,28 +191,29 @@ export default function Upload() {
                 )}
 
                 {step === 'preview' && extractedData && (
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-primary/10 rounded-lg">
-                                    <Sparkles className="w-6 h-6 text-primary" />
+                    <div className="space-y-8">
+                        <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-6">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-kobalt-blue/10 rounded-xl">
+                                    <Sparkles className="w-6 h-6 text-kobalt-blue" />
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-semibold">AI Analysis Complete</h3>
-                                    <p className="text-sm text-muted-foreground">
+                                    <h3 className="text-xl font-bold text-kobalt-black">AI Analysis Complete</h3>
+                                    <p className="text-sm text-kobalt-gray-dark">
                                         Analyzed with {extractedData.analysis_type === 'ai_powered' ? 'Perplexity AI' : 'Regex Fallback'}
                                     </p>
                                 </div>
                             </div>
-                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreColor(extractedData.scores?.overall_compliance_score || 0)} bg-current/10`}>
+                            <div className={`px-4 py-2 rounded-xl text-lg font-bold border ${extractedData.scores?.overall_compliance_score >= 50 ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
                                 Score: {extractedData.scores?.overall_compliance_score?.toFixed(1) || 'N/A'}
-                            </span>
+                            </div>
                         </div>
 
                         {/* Summary */}
                         {extractedData.summary && (
-                            <div className="p-4 bg-muted/50 rounded-lg">
-                                <p className="text-sm">{extractedData.summary}</p>
+                            <div className="p-6 bg-[#F7F7F5] rounded-xl border border-[#E5E5E5]">
+                                <h4 className="text-sm font-bold text-kobalt-black uppercase tracking-wider mb-2">Executive Summary</h4>
+                                <p className="text-kobalt-gray-dark leading-relaxed">{extractedData.summary}</p>
                             </div>
                         )}
 
@@ -220,9 +225,9 @@ export default function Upload() {
                                 { label: 'Taxonomy Score', value: extractedData.scores?.taxonomy_alignment_score },
                                 { label: 'Overall Score', value: extractedData.scores?.overall_compliance_score },
                             ].map((score) => (
-                                <div key={score.label} className="p-4 bg-muted rounded-lg text-center">
-                                    <p className="text-xs text-muted-foreground mb-1">{score.label}</p>
-                                    <p className={`text-2xl font-bold ${getScoreColor(score.value || 0)}`}>
+                                <div key={score.label} className="p-5 bg-white rounded-xl border border-[#E5E5E5] text-center hover:shadow-md transition-shadow">
+                                    <p className="text-xs font-bold text-kobalt-gray-dark uppercase mb-2">{score.label}</p>
+                                    <p className={`text-3xl font-bold ${getScoreColor(score.value || 0)}`}>
                                         {score.value?.toFixed(1) || 'N/A'}
                                     </p>
                                 </div>
@@ -232,33 +237,12 @@ export default function Upload() {
                         {/* Themes */}
                         {extractedData.themes?.length > 0 && (
                             <div>
-                                <p className="text-sm font-medium mb-2">ESG Themes Identified</p>
+                                <p className="text-sm font-bold text-kobalt-black uppercase mb-3">ESG Themes Identified</p>
                                 <div className="flex flex-wrap gap-2">
                                     {extractedData.themes.map((theme, i) => (
-                                        <span key={i} className="px-3 py-1 bg-primary/10 text-primary text-xs rounded-full">
+                                        <span key={i} className="px-3 py-1.5 bg-kobalt-blue/5 text-kobalt-blue text-sm font-medium rounded-lg border border-kobalt-blue/10">
                                             {theme}
                                         </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Keywords */}
-                        {extractedData.keywords && Object.keys(extractedData.keywords).length > 0 && (
-                            <div>
-                                <p className="text-sm font-medium mb-2">Keywords by Category</p>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    {Object.entries(extractedData.keywords).map(([category, words]) => (
-                                        <div key={category} className="p-3 bg-muted/50 rounded-lg">
-                                            <p className="text-xs font-medium text-muted-foreground capitalize mb-2">{category}</p>
-                                            <div className="flex flex-wrap gap-1">
-                                                {(words as string[]).slice(0, 5).map((word, i) => (
-                                                    <span key={i} className="px-2 py-0.5 bg-background text-xs rounded">
-                                                        {word}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
                                     ))}
                                 </div>
                             </div>
@@ -267,16 +251,16 @@ export default function Upload() {
                         {/* Red Flags */}
                         {extractedData.red_flags?.length > 0 && (
                             <div>
-                                <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                                <p className="text-sm font-bold text-kobalt-black uppercase mb-3 flex items-center gap-2">
                                     <AlertTriangle className="w-4 h-4 text-orange-500" />
                                     Red Flags Detected ({extractedData.red_flags.length})
                                 </p>
-                                <div className="space-y-2">
+                                <div className="space-y-3">
                                     {extractedData.red_flags.slice(0, 3).map((flag, i) => (
-                                        <div key={i} className={`p-3 rounded-lg border ${getSeverityColor(flag.severity)}`}>
-                                            <p className="text-sm font-medium">{flag.issue}</p>
+                                        <div key={i} className={`p-4 rounded-xl border ${getSeverityColor(flag.severity)}`}>
+                                            <p className="font-bold text-sm mb-1">{flag.issue}</p>
                                             {flag.recommendation && (
-                                                <p className="text-xs mt-1 opacity-80">{flag.recommendation}</p>
+                                                <p className="text-sm opacity-90">{flag.recommendation}</p>
                                             )}
                                         </div>
                                     ))}
@@ -287,11 +271,11 @@ export default function Upload() {
                         {/* Recommendations */}
                         {extractedData.recommendations?.length > 0 && (
                             <div>
-                                <p className="text-sm font-medium mb-2">AI Recommendations</p>
-                                <ul className="space-y-1">
+                                <p className="text-sm font-bold text-kobalt-black uppercase mb-3">AI Recommendations</p>
+                                <ul className="space-y-2">
                                     {extractedData.recommendations.slice(0, 4).map((rec, i) => (
-                                        <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                                            <span className="text-primary">→</span>
+                                        <li key={i} className="text-sm text-kobalt-gray-dark flex items-start gap-3 bg-white p-3 rounded-lg border border-[#E5E5E5]">
+                                            <span className="text-kobalt-blue font-bold mt-0.5">→</span>
                                             {rec}
                                         </li>
                                     ))}
@@ -299,42 +283,43 @@ export default function Upload() {
                             </div>
                         )}
 
-                        <button
+                        <KobaltButton
                             onClick={handleGenerateReport}
-                            className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                            className="w-full h-12 text-lg"
                         >
-                            <CheckCircle className="w-5 h-5" />
+                            <CheckCircle className="w-5 h-5 mr-2" />
                             Save ESG Report
-                        </button>
+                        </KobaltButton>
                     </div>
                 )}
 
                 {step === 'complete' && (
-                    <div className="text-center py-12">
-                        <div className="w-20 h-20 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-6">
-                            <CheckCircle className="w-12 h-12 text-green-500" />
+                    <div className="text-center py-20">
+                        <div className="w-24 h-24 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-6 border-4 border-green-100">
+                            <CheckCircle className="w-12 h-12 text-green-600" />
                         </div>
-                        <p className="text-xl font-semibold">ESG Report Generated!</p>
-                        <p className="text-sm text-muted-foreground mt-2">
+                        <h3 className="text-2xl font-bold text-kobalt-black">ESG Report Generated!</h3>
+                        <p className="text-kobalt-gray-dark mt-2 text-lg">
                             Your AI-powered ESG analysis report is ready to view
                         </p>
-                        <div className="flex gap-3 justify-center mt-8">
-                            <button
+                        <div className="flex gap-4 justify-center mt-8">
+                            <KobaltButton
                                 onClick={() => window.location.href = `/reports/${extractedData?.report_id}`}
-                                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                                className="min-w-[160px]"
                             >
                                 View Report
-                            </button>
-                            <button
+                            </KobaltButton>
+                            <KobaltButton
+                                variant="secondary"
                                 onClick={handleReset}
-                                className="px-6 py-2.5 bg-muted text-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
+                                className="min-w-[160px]"
                             >
                                 Upload Another
-                            </button>
+                            </KobaltButton>
                         </div>
                     </div>
                 )}
-            </div>
+            </KobaltCard>
         </div>
     )
 }

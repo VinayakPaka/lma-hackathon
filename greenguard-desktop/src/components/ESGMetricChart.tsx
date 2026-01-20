@@ -42,8 +42,8 @@ export function ESGRadarChart({ data }: { data: ESGData[] }) {
                 <Radar
                     name="ESG Score"
                     dataKey="score"
-                    stroke="hsl(142 76% 36%)"
-                    fill="hsl(142 76% 36%)"
+                    stroke="#1D4EDE"
+                    fill="#1D4EDE"
                     fillOpacity={0.3}
                     strokeWidth={2}
                 />
@@ -74,7 +74,7 @@ export function ESGBarChart({ data }: { data: { name: string; value: number; ben
                     }}
                 />
                 <Legend />
-                <Bar dataKey="value" fill="hsl(142 76% 36%)" radius={[4, 4, 0, 0]} name="Actual" />
+                <Bar dataKey="value" fill="#1D4EDE" radius={[4, 4, 0, 0]} name="Actual" />
                 {data[0]?.benchmark !== undefined && (
                     <Bar dataKey="benchmark" fill="hsl(var(--muted-foreground))" radius={[4, 4, 0, 0]} name="Benchmark" />
                 )}

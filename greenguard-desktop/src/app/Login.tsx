@@ -3,7 +3,11 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { authApi } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
-import { Leaf, Loader2 } from 'lucide-react'
+import { Leaf } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { KobaltCard } from '@/components/ui/KobaltCard'
+import { KobaltButton } from '@/components/ui/KobaltButton'
+import { KobaltInput } from '@/components/ui/KobaltInput'
 
 export default function Login() {
     const navigate = useNavigate()
@@ -17,7 +21,7 @@ export default function Login() {
         onSuccess: (response) => {
             const { access_token, refresh_token, user } = response.data
             login(user, access_token, refresh_token)
-            navigate('/')
+            navigate('/dashboard')
         },
         onError: (err: any) => {
             setError(err.response?.data?.detail || 'Login failed')
@@ -31,63 +35,87 @@ export default function Login() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-background p-4">
-            <div className="w-full max-w-md">
-                <div className="text-center mb-8">
-                    <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4">
-                        <Leaf className="w-10 h-10 text-primary-foreground" />
+        <div className="min-h-screen flex flex-col items-center justify-center bg-kobalt-gray p-4 relative overflow-hidden">
+            {/* Background Gradient Blob */}
+            <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-kobalt-blue/10 to-transparent pointer-events-none" />
+
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className="w-full max-w-md relative z-10"
+            >
+                <div className="text-center mb-10">
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white shadow-sm mb-6">
+                        <Leaf className="w-8 h-8 text-kobalt-blue" />
                     </div>
-                    <h1 className="text-2xl font-bold">Welcome to GreenGuard</h1>
-                    <p className="text-muted-foreground mt-1">Sign in to your account</p>
+                    <h1 className="text-3xl font-medium tracking-tight text-kobalt-black">GreenGuard</h1>
+                    <p className="text-kobalt-black/60 mt-2 text-lg">Sign in to your dashboard</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="bg-card rounded-xl p-6 border border-border space-y-4">
-                    {error && (
-                        <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-lg">
-                            {error}
+                <KobaltCard padding="lg" className="shadow-lg border-opacity-60">
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        {error && (
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="p-4 bg-red-50 text-red-600 text-sm rounded-xl border border-red-100 flex items-center gap-2"
+                            >
+                                <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                {error}
+                            </motion.div>
+                        )}
+
+                        <div className="space-y-4">
+                            <KobaltInput
+                                label="Work Email"
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                placeholder="name@company.com"
+                                required
+                                autoFocus
+                            />
+
+                            <div className="space-y-1">
+                                <KobaltInput
+                                    label="Password"
+                                    type="password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    placeholder="Enter your password"
+                                    required
+                                />
+                                <div className="flex justify-end">
+                                    <Link to="/forgot-password" className="text-xs text-kobalt-blue hover:text-blue-700 font-medium transition-colors">
+                                        Forgot password?
+                                    </Link>
+                                </div>
+                            </div>
                         </div>
-                    )}
 
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Email</label>
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="Enter your email"
-                            required
-                            className="w-full px-4 py-2.5 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                        />
-                    </div>
+                        <div className="pt-2">
+                            <KobaltButton
+                                type="submit"
+                                className="w-full py-3 text-base"
+                                isLoading={loginMutation.isPending}
+                            >
+                                Sign In
+                            </KobaltButton>
+                        </div>
+                    </form>
+                </KobaltCard>
 
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Password</label>
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Enter your password"
-                            required
-                            className="w-full px-4 py-2.5 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                        />
-                    </div>
+                <p className="text-center mt-8 text-sm text-kobalt-black/50">
+                    Don't have an account?{' '}
+                    <Link to="/register" className="text-kobalt-blue font-semibold hover:underline">
+                        Contact Sales
+                    </Link>
+                </p>
+            </motion.div>
 
-                    <button
-                        type="submit"
-                        disabled={loginMutation.isPending}
-                        className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                        {loginMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                        Sign In
-                    </button>
-
-                    <p className="text-center text-sm text-muted-foreground">
-                        Don't have an account?{' '}
-                        <Link to="/register" className="text-primary hover:underline">
-                            Register
-                        </Link>
-                    </p>
-                </form>
+            <div className="absolute bottom-8 text-xs text-kobalt-black/30 font-medium">
+                © 2026 GreenGuard ESG Platform
             </div>
         </div>
     )

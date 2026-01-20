@@ -1,0 +1,111 @@
+# ==========================
+# Environment & Secrets
+# ==========================
+.env
+.env.local
+.env.*.local
+*.env
+
+# ==========================
+# Python Bytecode
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ==========================
+# Virtual Environments
+# ==========================
+.venv/
+venv/
+ENV/
+env/
+.env.bak/
+env.bak/
+
+# ==========================
+# Distribution / Packaging
+# ==========================
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==========================
+# Testing & Coverage
+# ==========================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+
+# ==========================
+# Mypy / Type Checking
+# ==========================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ==========================
+# Jupyter Notebooks
+# ==========================
+.ipynb_checkpoints/
+
+# ==========================
+# Uploads & User Data
+# ==========================
+uploads/
+
+# ==========================
+# Logs & Temp Files
+# ==========================
+*.log
+logs/
+*.tmp
+*.temp
+output.txt
+
+# ==========================
+# Database
+# ==========================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==========================
+# IDE & Editor
+# ==========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==========================
+# OS Files
+# ==========================
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Test Files (optional - remove if you want to include tests)
+# ==========================
+test_*.py
