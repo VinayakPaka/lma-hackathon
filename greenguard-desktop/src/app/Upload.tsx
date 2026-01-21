@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { uploadApi, aiEsgApi } from '@/lib/api'
 import FilePicker from '@/components/FilePicker'
@@ -23,6 +24,7 @@ interface AIAnalysisResult {
 }
 
 export default function Upload() {
+    const navigate = useNavigate()
     const [step, setStep] = useState<UploadStep>('upload')
     const [documentId, setDocumentId] = useState<number | null>(null)
     const [extractedData, setExtractedData] = useState<AIAnalysisResult | null>(null)
@@ -304,7 +306,7 @@ export default function Upload() {
                         </p>
                         <div className="flex gap-4 justify-center mt-8">
                             <KobaltButton
-                                onClick={() => window.location.href = `/reports/${extractedData?.report_id}`}
+                                onClick={() => navigate(`/dashboard/reports/${extractedData?.report_id}`)}
                                 className="min-w-[160px]"
                             >
                                 View Report
