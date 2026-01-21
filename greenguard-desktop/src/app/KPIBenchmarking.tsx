@@ -125,6 +125,7 @@ interface EvaluationResult {
     }
     final_decision?: { recommendation?: string; confidence?: string; conditions?: Array<{ condition: string; detail: string; priority: string }> }
     detailed_report?: DetailedReport
+    recommended_terms?: { monitoring_plan?: string[] }
 }
 
 interface UploadedDocument {
@@ -986,10 +987,9 @@ export default function KPIBenchmarking() {
         const result = evaluationResult
         const memo = result.detailed_report
         const recommendation = result.final_decision?.recommendation || result.executive_summary.overall_recommendation
-        const isApproved = recommendation === 'APPROVE' || recommendation === 'CONDITIONAL_APPROVAL'
 
         // Get target ambition from various possible sources
-        const targetAmbition = result.peer_benchmarking?.ambition_classification?.level
+        const ambitionLevel = result.peer_benchmarking?.ambition_classification?.level
             || (result.peer_benchmarking?.company_position?.percentile_rank ?
                 (result.peer_benchmarking.company_position.percentile_rank >= 75 ? 'HIGHLY_AMBITIOUS'
                     : result.peer_benchmarking.company_position.percentile_rank >= 50 ? 'AMBITIOUS'
@@ -1005,7 +1005,7 @@ export default function KPIBenchmarking() {
                 default: return { bg: 'bg-gradient-to-br from-gray-600 to-gray-800', border: 'border-gray-600/50', text: 'text-white', icon: AlertTriangle, iconBg: 'bg-white/20', label: 'UNDER REVIEW' }
             }
         }
-        
+
         const getAmbitionStyle = () => {
             switch (ambitionLevel) {
                 case 'SCIENCE_ALIGNED':
@@ -1015,7 +1015,7 @@ export default function KPIBenchmarking() {
                 default: return { bg: 'bg-gradient-to-br from-gray-600 to-gray-800', border: 'border-gray-600/50', text: 'text-white', label: ambitionLevel }
             }
         }
-        
+
         const recStyle = getRecommendationStyle()
         const ambStyle = getAmbitionStyle()
         const RecIcon = recStyle.icon
@@ -1095,7 +1095,7 @@ export default function KPIBenchmarking() {
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-white/80 font-medium">Peer Percentile</span>
                                 <span className="text-2xl font-bold text-white">
-                                    {result.peer_benchmarking?.company_position?.percentile_rank 
+                                    {result.peer_benchmarking?.company_position?.percentile_rank
                                         ? `${Math.round(result.peer_benchmarking.company_position.percentile_rank)}th`
                                         : '5th'}
                                 </span>
@@ -1129,7 +1129,7 @@ export default function KPIBenchmarking() {
                                 <p className="text-sm text-kobalt-gray">Questions are answered using your uploaded documents + the saved report.</p>
                             </div>
                         </div>
-                        
+
                         <div className="bg-kobalt-gray rounded-xl p-4 mb-4">
                             <p className="text-kobalt-gray-dark italic">Try: "Why did the report recommend CONDITIONAL_APPROVAL?"</p>
                         </div>
@@ -1152,21 +1152,19 @@ export default function KPIBenchmarking() {
                         <div className="flex items-center gap-3 mb-8">
                             <button
                                 onClick={() => setReportView('memo')}
-                                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${
-                                    reportView === 'memo' 
-                                        ? 'bg-kobalt-blue text-white shadow-md' 
-                                        : 'bg-white border border-kobalt-border text-kobalt-gray-dark hover:bg-kobalt-gray'
-                                }`}
+                                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${reportView === 'memo'
+                                    ? 'bg-kobalt-blue text-white shadow-md'
+                                    : 'bg-white border border-kobalt-border text-kobalt-gray-dark hover:bg-kobalt-gray'
+                                    }`}
                             >
                                 Credit Memo
                             </button>
                             <button
                                 onClick={() => setReportView('highlights')}
-                                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${
-                                    reportView === 'highlights' 
-                                        ? 'bg-kobalt-blue text-white shadow-md' 
-                                        : 'bg-white border border-kobalt-border text-kobalt-gray-dark hover:bg-kobalt-gray'
-                                }`}
+                                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${reportView === 'highlights'
+                                    ? 'bg-kobalt-blue text-white shadow-md'
+                                    : 'bg-white border border-kobalt-border text-kobalt-gray-dark hover:bg-kobalt-gray'
+                                    }`}
                             >
                                 Highlights
                             </button>
@@ -1193,18 +1191,17 @@ export default function KPIBenchmarking() {
                                                         // Smooth scroll to section
                                                         const element = document.getElementById(section.id)
                                                         if (element) {
-                                                            element.scrollIntoView({ 
-                                                                behavior: 'smooth', 
+                                                            element.scrollIntoView({
+                                                                behavior: 'smooth',
                                                                 block: 'start',
                                                                 inline: 'nearest'
                                                             })
                                                         }
                                                     }}
-                                                    className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all ${
-                                                        activeSectionId === section.id
-                                                            ? 'bg-kobalt-blue text-white font-medium shadow-sm'
-                                                            : 'text-kobalt-gray-dark hover:bg-kobalt-gray'
-                                                    }`}
+                                                    className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all ${activeSectionId === section.id
+                                                        ? 'bg-kobalt-blue text-white font-medium shadow-sm'
+                                                        : 'text-kobalt-gray-dark hover:bg-kobalt-gray'
+                                                        }`}
                                                 >
                                                     {section.title}
                                                 </button>
@@ -1230,9 +1227,9 @@ export default function KPIBenchmarking() {
                             {/* Main Content Area */}
                             <div className="col-span-9 space-y-6">
                                 {(sections || []).map((section) => (
-                                    <div 
-                                        key={section.id} 
-                                        id={section.id} 
+                                    <div
+                                        key={section.id}
+                                        id={section.id}
                                         className="scroll-mt-24"
                                         style={{ scrollMarginTop: '6rem' }}
                                     >
@@ -1469,11 +1466,10 @@ export default function KPIBenchmarking() {
                                     <div key={idx} className="p-6 bg-kobalt-gray rounded-xl border border-kobalt-border">
                                         <div className="flex items-start justify-between mb-3">
                                             <h3 className="text-lg font-bold text-kobalt-black">R{idx + 1} • {risk.category}</h3>
-                                            <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${
-                                                risk.severity === 'HIGH' ? 'bg-red-100 text-red-700 border border-red-200' :
+                                            <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${risk.severity === 'HIGH' ? 'bg-red-100 text-red-700 border border-red-200' :
                                                 risk.severity === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
-                                                'bg-green-100 text-green-700 border border-green-200'
-                                            }`}>
+                                                    'bg-green-100 text-green-700 border border-green-200'
+                                                }`}>
                                                 {risk.severity}
                                             </span>
                                         </div>
