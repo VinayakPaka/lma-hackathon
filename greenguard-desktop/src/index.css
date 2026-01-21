@@ -4,25 +4,28 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 60 7% 96%;
+    /* #F7F7F5 - Kobalt Gray */
+    --foreground: 210 7% 11%;
+    /* #1A1C1E - Kobalt Black */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 210 7% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 142 76% 36%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
+    --popover-foreground: 210 7% 11%;
+    --primary: 225 76% 49%;
+    /* #1D4EDE - Kobalt Blue */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 100%;
+    --secondary-foreground: 210 7% 11%;
+    --muted: 60 7% 96%;
     --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 225 76% 49%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 142 76% 36%;
+    --ring: 225 76% 49%;
     --radius: 0.5rem;
   }
 
@@ -93,4 +96,89 @@
 
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* Markdown styling enhancements */
+.prose {
+  @apply text-kobalt-gray-dark;
+}
+
+.prose table {
+  @apply border-collapse w-full my-4;
+}
+
+.prose th {
+  @apply bg-kobalt-gray font-semibold text-left px-4 py-2 border border-kobalt-border text-kobalt-black;
+}
+
+.prose td {
+  @apply px-4 py-2 border border-kobalt-border text-kobalt-gray-dark;
+}
+
+.prose tr:nth-child(even) {
+  @apply bg-kobalt-gray/50;
+}
+
+.prose ul {
+  @apply list-disc pl-6 my-4 space-y-2 text-kobalt-gray-dark;
+}
+
+.prose ol {
+  @apply list-decimal pl-6 my-4 space-y-2 text-kobalt-gray-dark;
+}
+
+.prose li {
+  @apply text-kobalt-gray-dark;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  @apply font-bold mt-8 mb-4 text-kobalt-black;
+}
+
+.prose h2 {
+  @apply text-xl border-b border-kobalt-border pb-2 text-kobalt-black;
+}
+
+.prose h3 {
+  @apply text-lg text-kobalt-black;
+}
+
+.prose h4 {
+  @apply text-base text-kobalt-black;
+}
+
+.prose p {
+  @apply my-4 leading-relaxed text-kobalt-gray-dark;
+}
+
+.prose strong {
+  @apply font-semibold text-kobalt-black;
+}
+
+.prose em {
+  @apply italic text-kobalt-gray-dark;
+}
+
+.prose blockquote {
+  @apply border-l-4 border-kobalt-blue pl-4 italic my-4 text-kobalt-gray-dark;
+}
+
+.prose code {
+  @apply bg-kobalt-gray px-1.5 py-0.5 rounded text-sm font-mono text-kobalt-blue;
+}
+
+.prose pre {
+  @apply bg-kobalt-gray p-4 rounded-lg overflow-x-auto my-4;
+}
+
+.prose pre code {
+  @apply bg-transparent p-0 text-kobalt-gray-dark;
+}
+
+.prose hr {
+  @apply border-kobalt-border my-8;
+}
+
+.prose a {
+  @apply text-kobalt-blue underline hover:text-kobalt-blue/80;
 }

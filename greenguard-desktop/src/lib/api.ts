@@ -64,7 +64,9 @@ export const uploadApi = {
         const formData = new FormData()
         formData.append('file', file)
         return api.post('/upload/document', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
         })
     },
     getDocuments: (page = 1) => api.get(`/upload/documents?page=${page}`),
@@ -139,9 +141,7 @@ export const kpiEvaluationApi = {
     attachDocuments: (evaluationId: number, files: File[]) => {
         const formData = new FormData()
         files.forEach(file => formData.append('files', file))
-        return api.post(`/kpi/evaluations/${evaluationId}/documents`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        })
+        return api.post(`/kpi/evaluations/${evaluationId}/documents`, formData)
     },
 
     // Run verification pipeline
@@ -292,4 +292,3 @@ export const reportChatApi = {
     sendMessage: (sessionId: number, message: string) =>
         api.post(`/report-chat/session/${sessionId}/message`, { message }),
 }
-

@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { proceedsApi } from '@/lib/api'
-import { CheckCircle, XCircle, Loader2, DollarSign, AlertTriangle } from 'lucide-react'
+import { CheckCircle, XCircle, DollarSign, AlertTriangle } from 'lucide-react'
+import { KobaltCard } from '@/components/ui/KobaltCard'
+import { KobaltInput } from '@/components/ui/KobaltInput'
+import { KobaltButton } from '@/components/ui/KobaltButton'
 
 export default function UseOfProceeds() {
     const [borrowerId, setBorrowerId] = useState('')
@@ -36,166 +39,161 @@ export default function UseOfProceeds() {
     }
 
     return (
-        <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+        <div className="max-w-4xl mx-auto space-y-6 animate-fade-in pb-12">
             <div>
-                <h1 className="text-2xl font-bold">Use-of-Proceeds Verification</h1>
-                <p className="text-muted-foreground">Verify transaction compliance with green loan terms</p>
+                <h1 className="text-2xl font-bold text-kobalt-black">Use-of-Proceeds Verification</h1>
+                <p className="text-kobalt-gray-dark">Verify transaction compliance with green loan terms</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Form */}
-                <div className="bg-card rounded-xl p-6 border border-border">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2">
-                        <DollarSign className="w-5 h-5 text-primary" />
+                <KobaltCard padding="lg">
+                    <h3 className="font-bold text-kobalt-black mb-6 flex items-center gap-2">
+                        <div className="p-2 bg-kobalt-blue/10 rounded-lg">
+                            <DollarSign className="w-5 h-5 text-kobalt-blue" />
+                        </div>
                         Transaction Details
                     </h3>
 
-                    <form onSubmit={handleVerify} className="space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Borrower ID</label>
-                            <input
-                                type="number"
-                                value={borrowerId}
-                                onChange={(e) => setBorrowerId(e.target.value)}
-                                placeholder="Enter borrower ID"
-                                required
-                                className="w-full px-4 py-2.5 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                            />
-                        </div>
+                    <form onSubmit={handleVerify} className="space-y-5">
+                        <KobaltInput
+                            label="Borrower ID"
+                            type="number"
+                            value={borrowerId}
+                            onChange={(e) => setBorrowerId(e.target.value)}
+                            placeholder="Enter borrower ID"
+                            required
+                        />
 
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Vendor Name</label>
-                            <input
-                                type="text"
-                                value={vendorName}
-                                onChange={(e) => setVendorName(e.target.value)}
-                                placeholder="Enter vendor name"
-                                required
-                                className="w-full px-4 py-2.5 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                            />
-                        </div>
+                        <KobaltInput
+                            label="Vendor Name"
+                            type="text"
+                            value={vendorName}
+                            onChange={(e) => setVendorName(e.target.value)}
+                            placeholder="Enter vendor name"
+                            required
+                        />
 
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Transaction Amount ($)</label>
-                            <input
-                                type="number"
-                                value={amount}
-                                onChange={(e) => setAmount(e.target.value)}
-                                placeholder="Enter amount"
-                                required
-                                min="0"
-                                step="0.01"
-                                className="w-full px-4 py-2.5 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                            />
-                        </div>
+                        <KobaltInput
+                            label="Transaction Amount ($)"
+                            type="number"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            placeholder="Enter amount"
+                            required
+                            min="0"
+                            step="0.01"
+                            icon={<DollarSign className="w-4 h-4" />}
+                        />
 
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Description (Optional)</label>
+                        <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-kobalt-black/70 uppercase tracking-wider ml-1">
+                                Description (Optional)
+                            </label>
                             <textarea
                                 value={description}
                                 onChange={(e) => setDescription(e.target.value)}
                                 placeholder="Describe the transaction"
                                 rows={3}
-                                className="w-full px-4 py-2.5 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                                className="w-full bg-kobalt-gray/50 border border-transparent rounded-xl px-4 py-3 text-kobalt-black placeholder:text-gray-400 transition-all duration-200 focus:bg-white focus:border-kobalt-blue/30 focus:ring-4 focus:ring-kobalt-blue/10 focus:outline-none resize-none"
                             />
                         </div>
 
-                        <button
+                        <KobaltButton
                             type="submit"
-                            disabled={verifyMutation.isPending}
-                            className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                            isLoading={verifyMutation.isPending}
+                            className="w-full h-12 text-lg"
                         >
-                            {verifyMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                             Verify Transaction
-                        </button>
+                        </KobaltButton>
                     </form>
-                </div>
+                </KobaltCard>
 
                 {/* Results */}
                 <div className="space-y-4">
                     {result ? (
                         <>
                             {/* Compliance Status */}
-                            <div className={`rounded-xl p-6 border ${result.is_green_compliant
-                                    ? 'bg-green-500/5 border-green-500/20'
-                                    : 'bg-red-500/5 border-red-500/20'
-                                }`}>
+                            <KobaltCard className={`border-2 ${result.is_green_compliant ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
                                 <div className="flex items-center gap-4">
                                     {result.is_green_compliant ? (
-                                        <CheckCircle className="w-12 h-12 text-green-500" />
+                                        <CheckCircle className="w-12 h-12 text-green-600" />
                                     ) : (
-                                        <XCircle className="w-12 h-12 text-red-500" />
+                                        <XCircle className="w-12 h-12 text-red-600" />
                                     )}
                                     <div>
-                                        <p className="text-lg font-bold">
+                                        <p className={`text-lg font-bold ${result.is_green_compliant ? 'text-green-700' : 'text-red-700'}`}>
                                             {result.is_green_compliant ? 'GREEN COMPLIANT' : 'NON-COMPLIANT'}
                                         </p>
-                                        <p className="text-sm text-muted-foreground">
+                                        <p className={`text-sm ${result.is_green_compliant ? 'text-green-600/80' : 'text-red-600/80'}`}>
                                             Transaction #{result.transaction_id}
                                         </p>
                                     </div>
                                 </div>
-                            </div>
+                            </KobaltCard>
 
                             {/* Scores */}
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-card rounded-xl p-4 border border-border text-center">
-                                    <p className="text-sm text-muted-foreground">Misuse Risk Score</p>
-                                    <p className={`text-2xl font-bold mt-1 ${result.misuse_risk_score < 30 ? 'text-green-500' :
-                                            result.misuse_risk_score < 60 ? 'text-yellow-500' : 'text-red-500'
+                                <KobaltCard className="text-center">
+                                    <p className="text-xs font-bold text-kobalt-gray-dark uppercase">Misuse Risk Score</p>
+                                    <p className={`text-3xl font-bold mt-2 ${result.misuse_risk_score < 30 ? 'text-green-600' :
+                                        result.misuse_risk_score < 60 ? 'text-yellow-600' : 'text-red-600'
                                         }`}>
                                         {result.misuse_risk_score?.toFixed(1)}
                                     </p>
-                                </div>
-                                <div className="bg-card rounded-xl p-4 border border-border text-center">
-                                    <p className="text-sm text-muted-foreground">Vendor Status</p>
-                                    <p className={`text-lg font-bold mt-1 ${result.vendor_status === 'approved' ? 'text-green-500' :
-                                            result.vendor_status === 'unknown' ? 'text-yellow-500' : 'text-red-500'
+                                </KobaltCard>
+                                <KobaltCard className="text-center">
+                                    <p className="text-xs font-bold text-kobalt-gray-dark uppercase">Vendor Status</p>
+                                    <p className={`text-xl font-bold mt-2 ${result.vendor_status === 'approved' ? 'text-green-600' :
+                                        result.vendor_status === 'unknown' ? 'text-yellow-600' : 'text-red-600'
                                         }`}>
                                         {result.vendor_status?.toUpperCase()}
                                     </p>
-                                </div>
+                                </KobaltCard>
                             </div>
 
                             {/* Notes */}
-                            <div className="bg-card rounded-xl p-4 border border-border">
-                                <p className="text-sm font-medium mb-2">Compliance Notes</p>
-                                <p className="text-sm text-muted-foreground">{result.compliance_notes}</p>
-                            </div>
+                            <KobaltCard>
+                                <p className="text-xs font-bold text-kobalt-gray-dark uppercase mb-2">Compliance Notes</p>
+                                <p className="text-sm text-kobalt-black leading-relaxed">{result.compliance_notes}</p>
+                            </KobaltCard>
 
                             {/* Recommendations */}
                             {result.recommendations?.length > 0 && (
-                                <div className="bg-card rounded-xl p-4 border border-border">
-                                    <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                                <KobaltCard className="border-l-4 border-l-yellow-400">
+                                    <p className="text-sm font-bold text-kobalt-black mb-3 flex items-center gap-2">
                                         <AlertTriangle className="w-4 h-4 text-yellow-500" />
                                         Recommendations
                                     </p>
                                     <ul className="space-y-2">
                                         {result.recommendations.map((rec: string, i: number) => (
-                                            <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                                                <span className="text-primary">•</span>
+                                            <li key={i} className="text-sm text-kobalt-gray-dark flex items-start gap-2">
+                                                <span className="text-kobalt-blue font-bold">•</span>
                                                 {rec}
                                             </li>
                                         ))}
                                     </ul>
-                                </div>
+                                </KobaltCard>
                             )}
 
-                            <button
+                            <KobaltButton
+                                variant="secondary"
                                 onClick={handleReset}
-                                className="w-full py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
+                                className="w-full"
                             >
                                 Verify Another Transaction
-                            </button>
+                            </KobaltButton>
                         </>
                     ) : (
-                        <div className="bg-card rounded-xl p-12 border border-border text-center">
-                            <DollarSign className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                            <p className="text-lg font-medium">Enter Transaction Details</p>
-                            <p className="text-sm text-muted-foreground mt-1">
+                        <KobaltCard className="h-full flex flex-col items-center justify-center text-center p-12 border-dashed">
+                            <div className="w-16 h-16 bg-kobalt-gray/50 rounded-full flex items-center justify-center mb-4">
+                                <DollarSign className="w-8 h-8 text-kobalt-gray-dark" />
+                            </div>
+                            <p className="text-lg font-bold text-kobalt-black">Enter Transaction Details</p>
+                            <p className="text-sm text-kobalt-gray-dark mt-1">
                                 Fill in the form to verify green compliance
                             </p>
-                        </div>
+                        </KobaltCard>
                     )}
                 </div>
             </div>
