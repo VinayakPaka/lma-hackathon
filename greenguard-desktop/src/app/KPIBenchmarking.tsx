@@ -986,7 +986,16 @@ export default function KPIBenchmarking() {
         const result = evaluationResult
         const memo = result.detailed_report
         const recommendation = result.final_decision?.recommendation || result.executive_summary.overall_recommendation
-        const ambitionLevel = result.peer_benchmarking?.ambition_classification?.level || 'MODERATE'
+        const isApproved = recommendation === 'APPROVE' || recommendation === 'CONDITIONAL_APPROVAL'
+
+        // Get target ambition from various possible sources
+        const targetAmbition = result.peer_benchmarking?.ambition_classification?.level
+            || (result.peer_benchmarking?.company_position?.percentile_rank ?
+                (result.peer_benchmarking.company_position.percentile_rank >= 75 ? 'HIGHLY_AMBITIOUS'
+                    : result.peer_benchmarking.company_position.percentile_rank >= 50 ? 'AMBITIOUS'
+                        : result.peer_benchmarking.company_position.percentile_rank >= 25 ? 'MARKET_ALIGNED'
+                            : 'BELOW_MARKET')
+                : 'N/A')
 
         const getRecommendationStyle = () => {
             switch (recommendation) {
@@ -1072,11 +1081,15 @@ export default function KPIBenchmarking() {
                                 <div className="p-4 rounded-2xl bg-white/20">
                                     <TrendingUp className="w-10 h-10 text-white" />
                                 </div>
-                                <div>
-                                    <p className="text-white/90 text-sm font-semibold mb-1 tracking-wide">TARGET AMBITION</p>
-                                    <p className="text-3xl font-bold text-white">
-                                        {ambStyle.label}
-                                    </p>
+                                <div className="mt-3 pt-3 border-t border-white/20">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-white/70 text-sm">Peer Percentile</span>
+                                        <span className="text-white font-semibold">
+                                            {result.peer_benchmarking?.company_position?.percentile_rank
+                                                ? `${Math.round(result.peer_benchmarking.company_position.percentile_rank)}th`
+                                                : 'N/A'}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                             <div className="flex items-center justify-between text-sm">
